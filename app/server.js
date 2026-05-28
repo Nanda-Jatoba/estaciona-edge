@@ -72,12 +72,40 @@ app.get('/api/kv/:key', async (req, res) => {
   }
 });
 
+// Backstop server-side: no estado compartilhado, um mesmo telefone NÃO pode
+// ocupar mais de uma vaga. Impede burlar a regra escrevendo o JSON direto na API.
+function assertSingleSpotPerPhone(value) {
+  let st;
+  try { st = JSON.parse(value); } catch { return; } // não-JSON (outras chaves): ignora
+  const occ = st && st.occupancy;
+  if (!occ || typeof occ !== 'object') return;
+  const seen = new Set();
+  for (const key of Object.keys(occ)) {
+    const o = occ[key];
+    const phone = o && o.phone ? String(o.phone).replace(/\D/g, '') : '';
+    if (!phone) continue;
+    if (seen.has(phone)) {
+      const e = new Error('phone_multiple_spots');
+      e.status = 409;
+      throw e;
+    }
+    seen.add(phone);
+  }
+}
+
 app.put('/api/kv/:key', async (req, res) => {
   const k = req.params.key;
   if (!validKey(k)) return res.status(400).json({ error: 'bad key' });
   const v = req.body && req.body.value;
   if (typeof v !== 'string') return res.status(400).json({ error: 'value must be a string' });
   if (v.length > 2000000) return res.status(413).json({ error: 'value too large' });
+  if (k === 'state') {
+    try { assertSingleSpotPerPhone(v); }
+    catch (e) {
+      if (e.status === 409) return res.status(409).json({ error: 'phone_multiple_spots' });
+      throw e;
+    }
+  }
   try {
     await pool.query(
       `insert into kv (key, value, updated_at) values ($1, $2, now())

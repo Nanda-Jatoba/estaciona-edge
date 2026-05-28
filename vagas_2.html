@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>EstacionaEDGE — Vagas do Centenário Office</title>
-<link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <meta name="theme-color" content="#233a6b">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -240,18 +240,19 @@ async function setVal(k,v,s){try{await store.set(k,v,s);return true;}catch(e){co
 let state={date:'',occupancy:{},calls:{}};
 let occupancy={};
 let collapsed={Garagem:false,Subsolo:false};
-let user=null, pollTimer=null, currentTheme='light';
+let user=null, pollTimer=null, currentTheme='light', polledRaw=null;
 function todayStr(){const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
 async function loadState(){
-  const raw=await getVal('state',true);
+  let raw=await getVal('state',true);
   if(raw){try{state=JSON.parse(raw);}catch(e){state={date:todayStr(),occupancy:{},calls:{}};}}
   else state={date:todayStr(),occupancy:{},calls:{}};
   if(!state.occupancy)state.occupancy={};
   if(!state.calls)state.calls={};
-  if(state.date!==todayStr()){ state={date:todayStr(),occupancy:{},calls:{}}; await setVal('state',JSON.stringify(state),true); }
+  if(state.date!==todayStr()){ state={date:todayStr(),occupancy:{},calls:{}}; raw=JSON.stringify(state); await setVal('state',raw,true); }
   occupancy=state.occupancy;
+  polledRaw=raw; // referência do que já está refletido na tela
 }
-async function saveState(){ state.occupancy=occupancy; await setVal('state',JSON.stringify(state),true); }
+async function saveState(){ state.occupancy=occupancy; const s=JSON.stringify(state); polledRaw=s; await setVal('state',s,true); }
 
 /* ===== HELPERS ===== */
 const $=s=>document.querySelector(s);
@@ -364,7 +365,18 @@ function renderRegister(d){
 
 /* ===== DASHBOARD ===== */
 async function openDashboard(){await loadState();renderDashboard();startPoll();}
-function startPoll(){stopPoll();pollTimer=setInterval(async()=>{await loadState();renderVagas();refreshStats();renderCallBanner();},6000);}
+function startPoll(){stopPoll();pollTimer=setInterval(async()=>{
+  // Só busca e re-renderiza se o estado compartilhado realmente mudou (evita piscar).
+  if(document.hidden)return;
+  const raw=await getVal('state',true);
+  if((raw||'')===(polledRaw||''))return;          // nada mudou
+  polledRaw=raw;
+  if(raw){try{state=JSON.parse(raw);}catch(e){return;}}else state={date:todayStr(),occupancy:{},calls:{}};
+  if(!state.occupancy)state.occupancy={};
+  if(!state.calls)state.calls={};
+  occupancy=state.occupancy;
+  renderVagas();refreshStats();renderCallBanner();
+},6000);}
 function stopPoll(){if(pollTimer){clearInterval(pollTimer);pollTimer=null;}}
 function countOcc(){return Object.keys(occupancy).length;}
 

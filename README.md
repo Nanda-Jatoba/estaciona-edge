@@ -28,8 +28,16 @@ chamar pelo WhatsApp quem está bloqueando a saída.
 | Banco       | `estacionaedge` no container `baluarte-postgres` (5433)        |
 | DB role     | `estacionaedge_app` (tabela `kv`)                             |
 | nginx       | `/etc/nginx/sites-available/estacionaedge.baluarte.dev.br`     |
+| Monitoramento | Grafana — dashboard "App — EstacionaEDGE" (`grafana.baluarte.dev.br/d/app-estacionaedge`) |
 
 O banco é **isolado** dos outros apps (psiclinic etc.) — mesmo Postgres, database próprio.
+
+## Monitoramento (Grafana)
+
+Métricas no Grafana/Prometheus da VPS: status/CPU/RAM/uptime/restarts via PM2 e
+saúde do banco (`pg_stat_database` do database `estacionaedge`). Artefatos versionados
+em `monitoring/` (dashboard + entry do process-exporter). Detalhes e deploy:
+`monitoring/README.md`.
 
 ## Editar e publicar
 

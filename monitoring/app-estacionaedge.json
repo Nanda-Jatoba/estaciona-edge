@@ -1,0 +1,136 @@
+{
+  "uid": "app-estacionaedge",
+  "title": "App — EstacionaEDGE",
+  "tags": ["app", "estacionaedge"],
+  "timezone": "America/Sao_Paulo",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": {"from": "now-3h", "to": "now"},
+  "templating": {"list": []},
+  "annotations": {"list": []},
+  "panels": [
+    {
+      "id": 1, "type": "stat", "title": "Status",
+      "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"refId": "A", "expr": "pm2_process_up{name=\"estacionaedge\"}"}],
+      "options": {"colorMode": "background", "reduceOptions": {"calcs": ["lastNotNull"]}, "textMode": "value_and_name"},
+      "fieldConfig": {"defaults": {
+        "mappings": [{"type": "value", "options": {"0": {"text": "PARADO", "color": "red"}, "1": {"text": "ONLINE", "color": "green"}}}],
+        "thresholds": {"mode": "absolute", "steps": [{"color": "red"}, {"color": "green", "value": 1}]}
+      }}
+    },
+    {
+      "id": 2, "type": "stat", "title": "Uptime",
+      "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"refId": "A", "expr": "pm2_process_uptime_seconds{name=\"estacionaedge\"}"}],
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}},
+      "fieldConfig": {"defaults": {"unit": "s"}}
+    },
+    {
+      "id": 3, "type": "stat", "title": "RAM",
+      "gridPos": {"h": 4, "w": 6, "x": 12, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"refId": "A", "expr": "pm2_process_memory_bytes{name=\"estacionaedge\"}"}],
+      "options": {"colorMode": "background", "graphMode": "area", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "fieldConfig": {"defaults": {"unit": "bytes"}}
+    },
+    {
+      "id": 4, "type": "stat", "title": "CPU",
+      "gridPos": {"h": 4, "w": 6, "x": 18, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"refId": "A", "expr": "pm2_process_cpu_percent{name=\"estacionaedge\"}"}],
+      "options": {"colorMode": "background", "graphMode": "area", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "fieldConfig": {"defaults": {"unit": "percent", "thresholds": {"mode": "absolute", "steps": [
+        {"color": "green"}, {"color": "yellow", "value": 50}, {"color": "red", "value": 80}
+      ]}}}
+    },
+    {
+      "id": 10, "type": "timeseries", "title": "Uso de CPU (%)",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"refId": "A", "expr": "pm2_process_cpu_percent{name=\"estacionaedge\"}"}],
+      "fieldConfig": {"defaults": {"unit": "percent", "min": 0, "custom": {"fillOpacity": 25}}}
+    },
+    {
+      "id": 11, "type": "timeseries", "title": "RAM (MB)",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"refId": "A", "expr": "pm2_process_memory_bytes{name=\"estacionaedge\"} / 1024 / 1024"}],
+      "fieldConfig": {"defaults": {"unit": "decmbytes", "custom": {"fillOpacity": 15}}}
+    },
+    {
+      "id": 20, "type": "stat", "title": "Restarts (total)",
+      "gridPos": {"h": 5, "w": 8, "x": 0, "y": 12},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"refId": "A", "expr": "pm2_process_restarts_total{name=\"estacionaedge\"}"}],
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "value"},
+      "fieldConfig": {"defaults": {"unit": "short", "thresholds": {"mode": "absolute", "steps": [
+        {"color": "green"}, {"color": "yellow", "value": 5}, {"color": "red", "value": 20}
+      ]}}}
+    },
+    {
+      "id": 21, "type": "timeseries", "title": "Restarts ao longo do tempo",
+      "gridPos": {"h": 5, "w": 8, "x": 8, "y": 12},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"refId": "A", "expr": "increase(pm2_process_restarts_total{name=\"estacionaedge\"}[1h])"}],
+      "fieldConfig": {"defaults": {"unit": "short", "custom": {"drawStyle": "bars", "fillOpacity": 80}}}
+    },
+    {
+      "id": 22, "type": "stat", "title": "Restarts \"unstable\"",
+      "gridPos": {"h": 5, "w": 8, "x": 16, "y": 12},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"refId": "A", "expr": "pm2_process_unstable_restarts_total{name=\"estacionaedge\"}"}],
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "value"},
+      "fieldConfig": {"defaults": {"unit": "short", "thresholds": {"mode": "absolute", "steps": [
+        {"color": "green"}, {"color": "red", "value": 1}
+      ]}}}
+    },
+    {
+      "id": 30, "type": "row", "title": "Banco (estacionaedge @ baluarte-postgres)",
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 17}, "collapsed": false, "panels": []
+    },
+    {
+      "id": 31, "type": "stat", "title": "Conexões ativas",
+      "gridPos": {"h": 5, "w": 6, "x": 0, "y": 18},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"refId": "A", "expr": "pg_stat_database_numbackends{datname=\"estacionaedge\"}"}],
+      "options": {"colorMode": "value", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "fieldConfig": {"defaults": {"unit": "short"}}
+    },
+    {
+      "id": 32, "type": "stat", "title": "Cache hit ratio",
+      "gridPos": {"h": 5, "w": 6, "x": 6, "y": 18},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"refId": "A", "expr": "100 * sum(pg_stat_database_blks_hit{datname=\"estacionaedge\"}) / clamp_min(sum(pg_stat_database_blks_hit{datname=\"estacionaedge\"}) + sum(pg_stat_database_blks_read{datname=\"estacionaedge\"}), 1)"}],
+      "options": {"colorMode": "background", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "fieldConfig": {"defaults": {"unit": "percent", "min": 0, "max": 100, "thresholds": {"mode": "absolute", "steps": [
+        {"color": "red"}, {"color": "yellow", "value": 90}, {"color": "green", "value": 99}
+      ]}}}
+    },
+    {
+      "id": 33, "type": "timeseries", "title": "Linhas lidas / escritas (por s)",
+      "gridPos": {"h": 7, "w": 12, "x": 12, "y": 18},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {"refId": "A", "expr": "rate(pg_stat_database_tup_fetched{datname=\"estacionaedge\"}[5m])", "legendFormat": "fetched"},
+        {"refId": "B", "expr": "rate(pg_stat_database_tup_inserted{datname=\"estacionaedge\"}[5m])", "legendFormat": "inserted"},
+        {"refId": "C", "expr": "rate(pg_stat_database_tup_updated{datname=\"estacionaedge\"}[5m])", "legendFormat": "updated"},
+        {"refId": "D", "expr": "rate(pg_stat_database_tup_deleted{datname=\"estacionaedge\"}[5m])", "legendFormat": "deleted"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "rps", "min": 0, "custom": {"fillOpacity": 10}}}
+    },
+    {
+      "id": 34, "type": "stat", "title": "Deadlocks",
+      "gridPos": {"h": 5, "w": 6, "x": 0, "y": 23},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"refId": "A", "expr": "pg_stat_database_deadlocks{datname=\"estacionaedge\"}"}],
+      "options": {"colorMode": "value", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "fieldConfig": {"defaults": {"unit": "short", "thresholds": {"mode": "absolute", "steps": [
+        {"color": "green"}, {"color": "red", "value": 1}
+      ]}}}
+    }
+  ]
+}

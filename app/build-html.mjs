@@ -34,13 +34,13 @@ const SHIM = `<script>
     },
     async set(k, v, shared) {
       if (shared) {
-        var r = await fetch(url(k), {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ value: v }),
-        });
+        var headers = { 'Content-Type': 'application/json' };
+        var actor = localStorage.getItem('ee:currentUser'); // telefone logado (escopo pessoal)
+        if (actor) headers['X-Actor'] = actor;
+        var r = await fetch(url(k), { method: 'PUT', headers: headers, body: JSON.stringify({ value: v }) });
         if (!r.ok) throw new Error('kv set ' + r.status);
-        return { value: v };
+        var jr = await r.json().catch(function () { return { value: v }; });
+        return { value: jr && jr.value != null ? jr.value : v };
       }
       localStorage.setItem('ee:' + k, v);
       return { value: v };

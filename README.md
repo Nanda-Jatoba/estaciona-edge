@@ -12,6 +12,17 @@ chamar pelo WhatsApp quem está bloqueando a saída.
   - **escopo compartilhado** (ocupação das vagas, chamadas, cadastro de usuários) →
     API REST `/api/kv` → Postgres → visível para **todos**.
   - **escopo pessoal** (tema, telefone logado) → `localStorage` (por dispositivo).
+### Estado autoritativo (anti-abuso)
+A chave `state` (ocupação + chamadas) **não** é gravada como blob cru: o servidor lê o
+estado atual, identifica quem age pelo header `X-Actor` (telefone logado, enviado pelo
+shim a partir do `localStorage`) e aplica só o permitido — você ocupa apenas vaga livre
+como você mesmo, só libera a sua, ninguém sobrescreve/edita vaga de outro, e um telefone
+nunca fica em duas vagas. Tudo numa transação com advisory lock (sem perda por
+concorrência) + reset diário no servidor (timezone America/Sao_Paulo) + rate limit por IP
+nas escritas + validação de telefone BR e schema. Edições ilegítimas são silenciosamente
+neutralizadas (HTTP 200 sem efeito). `SLOT_TYPE` no server espelha o `VAGAS` do HTML —
+mudou a planta das vagas, atualize os dois.
+
 - `app/server.js` — Express: serve o frontend estático + KV store:
   - `GET /api/kv/:key` → `{value}` | 404
   - `PUT /api/kv/:key` (body `{value:string}`) → `{value}`

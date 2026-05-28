@@ -496,6 +496,7 @@ function renderVagas(){
   }));
 }
 
+function mySpotKey(){ const me=normPhone(user.phone); for(const k in occupancy){const o=occupancy[k]; if(o&&normPhone(o.phone)===me) return k;} return null; }
 function renderVaga(v){
   const slots=slotsOf(v);
   const me=normPhone(user.phone);
@@ -503,6 +504,7 @@ function renderVaga(v){
   const occCount=occInfo.filter(Boolean).length;
   const mineIdx=occInfo.findIndex(o=>o&&normPhone(o.phone)===me);
   const iAmHere=mineIdx>=0;
+  const iAmParked=!!mySpotKey(); // já ocupo alguma vaga (aqui ou em outro box)?
 
   const badge=occCount===slots.length?'<span class="vbadge full">Cheio</span>'
     :occCount>0?'<span class="vbadge some">'+occCount+'/'+slots.length+'</span>'
@@ -513,7 +515,7 @@ function renderVaga(v){
     const o=occInfo[i];const icon=s.type==='moto'?ICON.moto:ICON.car;
     const mine=o&&normPhone(o.phone)===me;
     let right='';
-    if(!v.stacked&&!o) right=`<button class="miniBtn park" data-park="${v.id+'-'+i}">Estacionar</button>`;
+    if(!v.stacked&&!o&&!iAmParked) right=`<button class="miniBtn park" data-park="${v.id+'-'+i}">Estacionar</button>`;
     rows+=`<div class="slot ${o?'taken':''}">
       <div class="vic">${icon}</div>
       <div class="scol">
@@ -540,7 +542,7 @@ function renderVaga(v){
     }
     inner+=`<button class="libBtn" data-free="${v.id+'-'+mineIdx}">Liberar minha vaga</button>`;
     actions=`<div class="boxAct">${inner}</div>`;
-  } else if(v.stacked){
+  } else if(v.stacked&&!iAmParked){
     if(occCount<slots.length){
       const where=occCount===0?'Você fica no fundo':'Você fica na frente';
       actions=`<div class="boxAct"><button class="bigPark" data-parkbox="${v.id}">Estacionar neste box · ${where}</button></div>`;
@@ -558,6 +560,7 @@ function renderVaga(v){
 /* ===== AÇÕES ===== */
 async function parkBox(boxId){
   await loadState();
+  if(mySpotKey()){toast('Você já está em uma vaga. Libere ela antes de ocupar outra.');renderVagas();refreshStats();return;}
   const v=VAGAS.find(x=>x.id===boxId);
   let idx=!occupancy[boxId+'-0']?0:(!occupancy[boxId+'-1']?1:-1);
   if(idx<0){toast('Esse box acabou de encher.');renderVagas();refreshStats();return;}
@@ -569,6 +572,7 @@ async function parkBox(boxId){
 }
 async function park(key){
   await loadState();
+  if(mySpotKey()){toast('Você já está em uma vaga. Libere ela antes de ocupar outra.');renderVagas();refreshStats();return;}
   if(occupancy[key]){toast('Esse espaço acabou de ser ocupado.');renderVagas();refreshStats();return;}
   const [vid,idx]=key.split('-');const v=VAGAS.find(x=>x.id===vid);const slot=slotsOf(v)[+idx];
   occupancy[key]={phone:user.phone,name:user.name,sala:user.sala,ts:Date.now(),type:slot.type};

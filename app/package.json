@@ -1,0 +1,16 @@
+{
+  "name": "estacionaedge",
+  "version": "1.0.0",
+  "private": true,
+  "description": "EstacionaEDGE — vagas do Centenário Office (KV API + frontend estático)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "build:html": "node build-html.mjs"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "pg": "^8.13.1"
+  }
+}

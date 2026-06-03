@@ -155,6 +155,11 @@
   .miniBtn{flex:none;padding:10px 14px;border-radius:10px;font-weight:700;font-size:.9rem;}
   .miniBtn.park{background:var(--surface);color:var(--ink);border:1px solid var(--border2);}
   .miniBtn.park:hover{background:var(--brand);color:var(--on-brand);border-color:var(--brand);}
+  .miniBtn.rep{background:var(--surface);color:var(--muted);border:1px solid var(--border2);font-size:.82rem;padding:9px 12px;}
+  .miniBtn.rep:hover{color:var(--warn);border-color:var(--warn);}
+  .miniBtn.rep.on{color:var(--warn);background:var(--warn-soft);border-color:transparent;}
+  .phantomTag{display:inline-flex;align-items:center;gap:4px;margin-left:7px;font-size:.6rem;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:var(--warn);background:var(--warn-soft);padding:2px 7px;border-radius:6px;vertical-align:middle;}
+  .phantomTag svg{width:11px;height:11px;}
 
   .boxAct{padding:13px 15px;border-top:1px solid var(--border);display:flex;flex-direction:column;gap:10px;}
   .bigPark{width:100%;padding:16px;border-radius:12px;font-weight:700;font-size:1.05rem;background:var(--surface);color:var(--ink);border:1px solid var(--border2);}
@@ -197,7 +202,7 @@
   .opt.wa .oic{background:var(--wa);color:#fff;}
   .opt.cp .oic{background:var(--chip-bg);color:var(--chip-ink);}
   .opt .oic svg{width:25px;height:25px;}
-  .opt .otxt{flex:1;min-width:0;}
+  .opt .otxt{flex:1;min-width:0;display:flex;flex-direction:column;}
   .opt .ot1{font-weight:700;font-size:1.04rem;color:var(--ink);}
   .opt .ot2{color:var(--muted);font-size:.82rem;margin-top:1px;}
   .opt.cancel{justify-content:center;background:transparent;border:none;color:var(--muted);font-weight:600;margin-top:2px;padding:14px;}
@@ -256,6 +261,13 @@
   .voteBtn.up.on{color:var(--accent-d);background:var(--accent-soft);border-color:transparent;}
   .voteBtn.down.on{color:var(--bad);background:var(--bad-soft);border-color:transparent;}
   .voteBtn:hover{border-color:var(--accent);}
+  .implBtn{display:flex;align-items:center;gap:6px;padding:7px 13px;border-radius:999px;font-weight:700;font-size:.9rem;background:var(--surface);color:var(--muted);border:1px solid var(--border2);margin-left:auto;}
+  .implBtn svg{width:16px;height:16px;}
+  .implBtn:hover{border-color:var(--ok,#3aa76d);color:var(--ok,#3aa76d);}
+  .implBtn.on{color:#fff;background:#2ea36a;border-color:transparent;}
+  .sugItem.done{border-color:#2ea36a;box-shadow:0 0 0 1px #2ea36a,var(--shadow-sm);}
+  .sugDone{display:flex;align-items:center;gap:7px;margin-top:9px;font-size:.86rem;font-weight:800;color:#2ea36a;}
+  .sugDone svg{width:16px;height:16px;}
 
   /* modal de novidades */
   .modal{position:fixed;inset:0;z-index:80;display:none;align-items:center;justify-content:center;padding:20px;}
@@ -310,22 +322,22 @@ async function getVal(k,s){try{const r=await store.get(k,s);return r?r.value:nul
 async function setVal(k,v,s){try{await store.set(k,v,s);return true;}catch(e){console.error(e);return false;}}
 
 /* ===== ESTADO ===== */
-let state={date:'',occupancy:{},calls:{},waitlist:{}};
+let state={date:'',occupancy:{},calls:{},waitlist:{},disputes:{}};
 let occupancy={};
 let collapsed={};                 // andares recolhidos
 FLOORS.forEach(f=>{collapsed[f]=true;}); // todos começam fechados
 let collapsedBox={'812':true};    // box recolhível (só motos) começa recolhido
-let user=null, pollTimer=null, currentTheme='light', polledRaw=null;
+let user=null, evSource=null, liveOpened=false, liveBound=false, currentTheme='light', polledRaw=null;
 const slug=s=>String(s).replace(/\s+/g,'-');
 const localOf=id=>{const v=VAGAS.find(x=>x.id===id);return v?v.local:null;};
 function todayStr(){const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
-function normState(){if(!state.occupancy)state.occupancy={};if(!state.calls)state.calls={};if(!state.waitlist)state.waitlist={};}
+function normState(){if(!state.occupancy)state.occupancy={};if(!state.calls)state.calls={};if(!state.waitlist)state.waitlist={};if(!state.disputes)state.disputes={};}
 async function loadState(){
   let raw=await getVal('state',true);
-  if(raw){try{state=JSON.parse(raw);}catch(e){state={date:todayStr(),occupancy:{},calls:{},waitlist:{}};}}
-  else state={date:todayStr(),occupancy:{},calls:{},waitlist:{}};
+  if(raw){try{state=JSON.parse(raw);}catch(e){state={date:todayStr(),occupancy:{},calls:{},waitlist:{},disputes:{}};}}
+  else state={date:todayStr(),occupancy:{},calls:{},waitlist:{},disputes:{}};
   normState();
-  if(state.date!==todayStr()){ state={date:todayStr(),occupancy:{},calls:{},waitlist:{}}; raw=JSON.stringify(state); await setVal('state',raw,true); }
+  if(state.date!==todayStr()){ state={date:todayStr(),occupancy:{},calls:{},waitlist:{},disputes:{}}; raw=JSON.stringify(state); await setVal('state',raw,true); }
   occupancy=state.occupancy;
   polledRaw=raw; // referência do que já está refletido na tela
 }
@@ -355,7 +367,8 @@ const ICON={
   back:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>',
   check:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>',
   thumbUp:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 10v11M2 12v7a2 2 0 0 0 2 2h13.5a2 2 0 0 0 2-1.7l1.3-7a2 2 0 0 0-2-2.3H14V4.5A2.5 2.5 0 0 0 11.5 2L7 10z"/></svg>',
-  thumbDown:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 14V3M22 12V5a2 2 0 0 0-2-2H6.5a2 2 0 0 0-2 1.7l-1.3 7A2 2 0 0 0 5.2 14H10v5.5A2.5 2.5 0 0 0 12.5 22L17 14z"/></svg>'
+  thumbDown:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 14V3M22 12V5a2 2 0 0 0-2-2H6.5a2 2 0 0 0-2 1.7l-1.3 7A2 2 0 0 0 5.2 14H10v5.5A2.5 2.5 0 0 0 12.5 22L17 14z"/></svg>',
+  warn:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>'
 };
 function logoSrc(){return currentTheme==='dark'?LOGO_DARK:LOGO_LIGHT;}
 function themeBtnHTML(extraClass){return `<button class="iconbtn ${extraClass||''}" data-themebtn title="${currentTheme==='dark'?'Modo claro':'Modo escuro'}">${currentTheme==='dark'?ICON.sun:ICON.moon}</button>`;}
@@ -380,7 +393,7 @@ async function init(){
 
 /* ===== LOGIN ===== */
 function renderLogin(prefill=''){
-  stopPoll();
+  stopLive();
   app.innerHTML=`<div class="login">
     ${themeBtnHTML('themeToggle')}
     <div class="hero">
@@ -446,19 +459,52 @@ function renderRegister(d){
 }
 
 /* ===== DASHBOARD ===== */
-async function openDashboard(){await loadState();renderDashboard();startPoll();maybeShowUpdates();}
-function startPoll(){stopPoll();pollTimer=setInterval(async()=>{
-  // Só busca e re-renderiza se o estado compartilhado realmente mudou (evita piscar).
-  if(document.hidden)return;
-  const raw=await getVal('state',true);
-  if((raw||'')===(polledRaw||''))return;          // nada mudou
-  polledRaw=raw;
-  if(raw){try{state=JSON.parse(raw);}catch(e){return;}}else state={date:todayStr(),occupancy:{},calls:{},waitlist:{}};
-  normState();
-  occupancy=state.occupancy;
-  renderVagas();refreshStats();renderCallBanner();renderWaitlist();
-},6000);}
-function stopPoll(){if(pollTimer){clearInterval(pollTimer);pollTimer=null;}}
+async function openDashboard(){await loadState();renderDashboard();startLive();maybeShowUpdates();}
+
+/* ===== TEMPO REAL (SSE) — substitui o polling de 6s =====
+   Uma conexão longa recebe só os ids que mudaram quando ALGUÉM faz uma ação.
+   Nada é buscado de tempos em tempos. */
+function onDashboard(){return !!document.querySelector('#vagas');}
+function onSuggestions(){return !!document.querySelector('#sugList');}
+function applyDelta(target,delta){ if(!target||!delta)return; for(const k in delta){ if(delta[k]===null) delete target[k]; else target[k]=delta[k]; } }
+function applyLiveEvent(raw){
+  let d; try{d=JSON.parse(raw);}catch(e){return;}
+  if(d.t==='state'){
+    if(d.date && d.date!==todayStr()){ reloadDashboardState(); return; } // virou o dia
+    applyDelta(state.occupancy,d.occ);
+    applyDelta(state.calls,d.calls);
+    applyDelta(state.waitlist,d.wait);
+    applyDelta(state.disputes,d.disp);
+    occupancy=state.occupancy;
+    if(onDashboard()){ renderVagas(); refreshStats(); renderCallBanner(); renderWaitlist(); }
+  }else if(d.t==='sug'){
+    if(d.items) patchSuggestions(d.items);
+  }
+}
+async function reloadDashboardState(){ await loadState(); if(onDashboard()){renderVagas();refreshStats();renderCallBanner();renderWaitlist();} }
+function startLive(){
+  // sem backend real (dev por arquivo), não há SSE — o app segue funcionando.
+  if(typeof EventSource==='undefined'||!window.storage){return;}
+  if(!liveBound){
+    liveBound=true;
+    // Ações (não timers) que disparam uma reconciliação pontual:
+    document.addEventListener('visibilitychange',()=>{ if(!document.hidden){ if(onDashboard())reloadDashboardState(); if(onSuggestions())loadSuggestions(); } });
+  }
+  if(evSource)return; // já conectado
+  try{
+    evSource=new EventSource('/api/events');
+    evSource.onmessage=e=>applyLiveEvent(e.data);
+    evSource.addEventListener('open',()=>{
+      if(liveOpened){ // reconectou após queda: ressincroniza (pode ter perdido eventos)
+        if(onDashboard())reloadDashboardState();
+        if(onSuggestions())loadSuggestions();
+      }
+      liveOpened=true;
+    });
+    evSource.onerror=()=>{/* o próprio EventSource reconecta sozinho */};
+  }catch(e){evSource=null;}
+}
+function stopLive(){ if(evSource){try{evSource.close();}catch(e){} evSource=null; liveOpened=false;} }
 function countOcc(){return Object.keys(occupancy).length;}
 function slotStats(){
   let carT=0,carO=0,motoT=0,motoO=0;
@@ -499,7 +545,7 @@ function renderDashboard(){
         <div class="waitHead">${ICON.bell}<span>Lista de espera</span><span class="wcount" id="waitCount"></span></div>
         <div id="waitlist"></div>
       </div>
-      <p class="footnote">Você escolhe fundo ou frente no box. <b>As vagas são liberadas sozinhas todo dia.</b>
+      <p class="footnote">Você escolhe fundo ou frente na vaga. <b>As vagas são liberadas sozinhas todo dia.</b>
       <span class="ind">Aplicativo independente — não é um produto oficial EDGE.</span></p>
     </main>`;
   bindThemeBtns();
@@ -524,7 +570,7 @@ function renderCallBanner(){
       <div class="cnic">${ICON.bell}</div>
       <div class="cntxt">
         <div class="cnt1">${esc(c.from)} te chamou para descer</div>
-        <div class="cnt2">Sala ${esc(c.sala)} · Box ${esc(c.box)} (${esc(c.local)}) — precisa que você mova o carro</div>
+        <div class="cnt2">Sala ${esc(c.sala)} · Vaga ${esc(c.box)} (${esc(c.local)}) — precisa que você mova o carro</div>
       </div>
       <button class="cnbtn" id="cnDismiss">Já vou</button>
     </div>`;
@@ -545,14 +591,14 @@ async function dismissCall(){
 
 /* ===== BOTTOM SHEET ===== */
 function openCallSheet(o,box,local){
-  const msg=`Oi ${firstName(o.name)}! Aqui é ${user.name}, da sala ${user.sala}. Estamos no mesmo box ${box} (${local}) e eu preciso sair. Você pode descer pra mover o carro? Obrigado!`;
+  const msg=`Oi ${firstName(o.name)}! Aqui é ${user.name}, da sala ${user.sala}. Estamos na mesma vaga ${box} (${local}) e eu preciso sair. Você pode descer pra mover o carro? Obrigado!`;
   const wa=`https://wa.me/${waNumber(o.phone)}?text=${encodeURIComponent(msg)}`;
   const sheet=$('#sheet');
   sheet.innerHTML=`<div class="ov" data-close></div>
     <div class="box">
       <div class="grip"></div>
       <div class="sh-h">Chamar ${esc(o.name)}</div>
-      <div class="sh-s">Box ${esc(box)} · ${esc(local)} · Sala ${esc(o.sala)}</div>
+      <div class="sh-s">Vaga ${esc(box)} · ${esc(local)} · Sala ${esc(o.sala)}</div>
       <button class="opt wa" id="optWa"><span class="oic">${ICON.wa}</span>
         <span class="otxt"><span class="ot1">Chamar no WhatsApp</span><span class="ot2">Abre o WhatsApp com a mensagem pronta</span></span></button>
       <button class="opt cp" id="optCopy"><span class="oic">${ICON.copy}</span>
@@ -602,6 +648,7 @@ function bindVagasScope(scope){
   scope.querySelectorAll('[data-boxtoggle]').forEach(b=>b.addEventListener('click',()=>{const id=b.dataset.boxtoggle;collapsedBox[id]=!collapsedBox[id];renderOneFloor(localOf(id));}));
   scope.querySelectorAll('[data-park]').forEach(b=>b.addEventListener('click',()=>park(b.dataset.park)));
   scope.querySelectorAll('[data-free]').forEach(b=>b.addEventListener('click',()=>freeSlot(b.dataset.free)));
+  scope.querySelectorAll('[data-phantom]').forEach(b=>b.addEventListener('click',()=>openPhantomSheet(b.dataset.phantom)));
   scope.querySelectorAll('[data-callbtn]').forEach(b=>b.addEventListener('click',()=>openCallSheet({name:b.dataset.name,phone:b.dataset.phone,sala:b.dataset.sala},b.dataset.box,b.dataset.local)));
 }
 function renderVagas(){
@@ -616,6 +663,14 @@ function renderOneFloor(floor){
 }
 
 function mySpotKey(){ const me=normPhone(user.phone); for(const k in occupancy){const o=occupancy[k]; if(o&&normPhone(o.phone)===me) return k;} return null; }
+// Avisos de "marcada como ocupada, mas pode estar vazia" para uma vaga.
+function disputeInfo(slotKey){
+  const d=(state.disputes&&state.disputes[slotKey])||null;
+  if(!d)return{count:0,mine:false};
+  const me=normPhone(user.phone);
+  const phones=Object.keys(d);
+  return{count:phones.length,mine:phones.some(p=>normPhone(p)===me)};
+}
 function renderVaga(v){
   const slots=slotsOf(v);
   const me=normPhone(user.phone);
@@ -634,10 +689,10 @@ function renderVaga(v){
   const head=collapsible
     ? `<button class="vh vhtoggle ${boxOpen?'open':''}" data-boxtoggle="${v.id}">
          <div class="vnum mono">${v.id}</div>
-         <div class="vinfo"><div class="t">Box ${v.id} <span class="motoTag">Só motos</span></div>
+         <div class="vinfo"><div class="t">Vaga ${v.id} <span class="motoTag">Só motos</span></div>
            <div class="s">${esc(v.local)}</div></div>${badge}<span class="chev">${ICON.arrow}</span></button>`
     : `<div class="vh"><div class="vnum mono">${v.id}</div>
-         <div class="vinfo"><div class="t">Box ${v.id}</div><div class="s">${esc(v.local)}</div></div>${badge}</div>`;
+         <div class="vinfo"><div class="t">Vaga ${v.id}</div><div class="s">${esc(v.local)}</div></div>${badge}</div>`;
 
   // recolhida: mostra só o cabeçalho (ajuda quem só procura carro)
   if(collapsible && !boxOpen) return `<div class="vaga ${iAmHere?'mine':''}" data-box="${v.id}">${head}</div>`;
@@ -647,13 +702,19 @@ function renderVaga(v){
   slots.forEach((s,i)=>{
     const o=occInfo[i];const icon=s.type==='moto'?ICON.moto:ICON.car;
     const mine=o&&normPhone(o.phone)===me;
-    // botão de estacionar FICA AO LADO do fundo/frente (na própria linha), não abaixo
-    const right=(!o&&!iAmParked)?`<button class="miniBtn park" data-park="${v.id+'-'+i}">Estacionar</button>`:'';
+    const slotKey=v.id+'-'+i;
+    const di=o?disputeInfo(slotKey):{count:0,mine:false};
+    // à direita: estacionar (vaga livre) OU "Sem carro?" (vaga de outra pessoa)
+    let right='';
+    if(!o&&!iAmParked) right=`<button class="miniBtn park" data-park="${slotKey}">Estacionar</button>`;
+    else if(o&&!mine) right=`<button class="miniBtn rep ${di.mine?'on':''}" data-phantom="${slotKey}" title="${di.mine?'Você avisou que pode estar vazia':'A vaga aparece ocupada mas não tem carro? Toque para ver as opções'}">${di.mine?'Avisado':'Sem carro?'}</button>`;
+    // chip "pode estar vazia" ao lado do nome (quando alguém reportou)
+    const phantomTag=di.count?`<span class="phantomTag" title="${di.count} aviso${di.count>1?'s':''} de que pode estar vazia">${ICON.warn}pode estar vazia</span>`:'';
     body+=`<div class="slot ${o?'taken':''}">
       <div class="vic">${icon}</div>
       <div class="scol">
         <div class="slabel">${s.label}</div>
-        ${o?`<div class="sname">${esc(o.name)}${mine?'<span class="tagme">VOCÊ</span>':''}</div><div class="ssala">Sala ${esc(o.sala)}</div>`
+        ${o?`<div class="sname">${esc(o.name)}${mine?'<span class="tagme">VOCÊ</span>':''}${phantomTag}</div><div class="ssala">Sala ${esc(o.sala)}</div>`
             :`<div class="sname livre">Livre</div>`}
       </div>${right}</div>`;
   });
@@ -720,7 +781,78 @@ function offerNotifyWaitlist(){
   sheet.querySelectorAll('[data-close]').forEach(e=>e.addEventListener('click',closeSheet));
   sheet.querySelectorAll('[data-notify]').forEach(b=>b.addEventListener('click',()=>openWaitSheet({name:b.dataset.name,phone:b.dataset.phone,sala:b.dataset.sala})));
 }
-async function doLogout(){await setVal('currentUser','',false);try{await store.delete('currentUser',false);}catch(e){}user=null;occupancy={};state={date:todayStr(),occupancy:{},calls:{},waitlist:{}};renderLogin();}
+/* ===== AVISO: VAGA MARCADA COMO CHEIA, MAS SEM CARRO ===== */
+// Folha com duas ações: só avisar (sem mudar o nome) OU assumir a vaga (substitui o nome).
+function openPhantomSheet(key){
+  const o=occupancy[key];if(!o){toast('Essa vaga já está livre.');renderOneFloor(localOf(key.split('-')[0]));refreshStats();return;}
+  const di=disputeInfo(key);const vid=key.split('-')[0];
+  const oicon=o.type==='moto'?ICON.moto:ICON.car;
+  const warnOpt=di.mine
+    ? `<button class="opt" data-act="unwarn"><span class="oic">${ICON.warn}</span>
+        <span class="otxt"><span class="ot1">Retirar meu aviso</span><span class="ot2">Você havia marcado que pode estar vazia</span></span></button>`
+    : `<button class="opt" data-act="warn"><span class="oic">${ICON.warn}</span>
+        <span class="otxt"><span class="ot1">Avisar que pode estar vazia</span><span class="ot2">Só mostra um aviso — não muda o nome</span></span></button>`;
+  const sheet=$('#sheet');
+  sheet.innerHTML=`<div class="ov" data-close></div>
+    <div class="box">
+      <div class="grip"></div>
+      <div class="sh-h">Vaga ${esc(vid)} · ${esc(o.name)}</div>
+      <div class="sh-s">${di.count?('Há '+di.count+' aviso'+(di.count>1?'s':'')+' de que a vaga pode estar vazia'):'A vaga aparece ocupada'}. O que você quer fazer?</div>
+      ${warnOpt}
+      <button class="opt" data-act="take"><span class="oic">${oicon}</span>
+        <span class="otxt"><span class="ot1">Estacionar aqui</span><span class="ot2">Assume a vaga no lugar de ${esc(firstName(o.name))}</span></span></button>
+      <button class="opt cancel" data-close>Cancelar</button>
+    </div>`;
+  sheet.classList.add('show');
+  sheet.querySelectorAll('[data-close]').forEach(e=>e.addEventListener('click',closeSheet));
+  sheet.querySelectorAll('[data-act]').forEach(b=>b.addEventListener('click',()=>{
+    const a=b.dataset.act;closeSheet();
+    if(a==='warn')reportPhantom(key);
+    else if(a==='unwarn')unreportPhantom(key);
+    else if(a==='take')takeoverSpot(key);
+  }));
+}
+async function takeoverSpot(key){
+  await loadState();
+  const vid=key.split('-')[0];
+  if(mySpotKey()){toast('Você já está em uma vaga. Libere ela antes de assumir outra.');renderVagas();refreshStats();renderWaitlist();return;}
+  const o=occupancy[key];
+  if(!o){return park(key);} // já liberaram: vira um estacionar normal
+  if(normPhone(o.phone)===normPhone(user.phone)){toast('Essa vaga já é sua.');return;}
+  const v=VAGAS.find(x=>x.id===vid);const slot=slotsOf(v)[+key.split('-')[1]];
+  // 1) registra meu aviso (autoriza o takeover no servidor) + assume a vaga
+  if(!state.disputes[key])state.disputes[key]={};
+  state.disputes[key][normPhone(user.phone)]={name:user.name,phone:user.phone,ts:Date.now()};
+  occupancy[key]={phone:user.phone,name:user.name,sala:user.sala,ts:Date.now(),type:slot.type};
+  delete state.waitlist[normPhone(user.phone)];
+  await saveState();
+  // 2) vaga assumida tem carro de novo -> limpa o aviso e persiste o estado limpo
+  delete state.disputes[key];
+  await saveState();
+  toast('Você assumiu a vaga '+vid+'.');
+  renderOneFloor(localOf(vid));refreshStats();renderWaitlist();
+}
+async function reportPhantom(key){
+  await loadState();
+  const o=occupancy[key];
+  const vid=key.split('-')[0];
+  if(!o){toast('Essa vaga já está livre.');renderOneFloor(localOf(vid));refreshStats();return;}
+  if(normPhone(o.phone)===normPhone(user.phone)){toast('Essa vaga é sua.');return;}
+  if(!state.disputes[key])state.disputes[key]={};
+  state.disputes[key][normPhone(user.phone)]={name:user.name,phone:user.phone,ts:Date.now()};
+  await saveState();
+  toast('Aviso enviado: a vaga pode estar vazia.');
+  renderOneFloor(localOf(vid));
+}
+async function unreportPhantom(key){
+  await loadState();
+  const vid=key.split('-')[0];
+  if(state.disputes[key]){delete state.disputes[key][normPhone(user.phone)];if(!Object.keys(state.disputes[key]).length)delete state.disputes[key];}
+  await saveState();
+  toast('Aviso retirado.');
+  renderOneFloor(localOf(vid));
+}
+async function doLogout(){stopLive();await setVal('currentUser','',false);try{await store.delete('currentUser',false);}catch(e){}user=null;occupancy={};state={date:todayStr(),occupancy:{},calls:{},waitlist:{},disputes:{}};renderLogin();}
 
 /* ===== LISTA DE ESPERA ===== */
 function renderWaitlist(){
@@ -787,7 +919,8 @@ function openWaitSheet(o){
 /* ===== SUGESTÕES E MELHORIAS ===== */
 function fmtDateTime(ts){try{const d=new Date(ts);return d.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'})+' '+d.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});}catch(e){return '';}}
 function openSuggestions(){
-  stopPoll();
+  startLive();
+  sugCache=null;
   app.innerHTML=`<header class="bar"><div class="barTop">
       <button class="iconbtn" id="sugBack" title="Voltar">${ICON.back}</button>
       <div class="who"><div class="nm">Sugestões e melhorias</div><div class="meta">Sua ideia ajuda a melhorar o app</div></div>
@@ -809,6 +942,7 @@ function openSuggestions(){
   $('#sugSend').addEventListener('click',sendSuggestion);
   loadSuggestions();
 }
+let sugCache=null; // cache local; atualizado por ação e por evento (sem polling)
 async function readSuggestions(){
   const raw=await getVal('suggestions',true);
   if(!raw)return[];
@@ -816,53 +950,85 @@ async function readSuggestions(){
 }
 const sid=s=>normPhone(s.phone)+'|'+s.ts;
 function voteCounts(s){const v=s.votes||{};let up=0,down=0;for(const k in v){if(v[k]===1)up++;else if(v[k]===-1)down++;}return{up,down,mine:v[normPhone(user.phone)]||0};}
-async function loadSuggestions(){
+function sugItemHtml(s){
+  const c=voteCounts(s);const id=esc(sid(s));const impl=s.implemented===true;
+  const by=impl&&s.implementedBy?(' · por '+esc(firstName(s.implementedBy))):'';
+  return `<div class="sugItem ${impl?'done':''}">
+    <div class="sugMeta"><b>${esc(s.name)}</b> · Sala ${esc(s.sala)} · ${fmtDateTime(s.ts)}</div>
+    <div class="sugBody">${esc(s.text)}</div>
+    ${impl?`<div class="sugDone">${ICON.check}<span>Implementada${by}</span></div>`:''}
+    <div class="sugVotes">
+      <button class="voteBtn up ${c.mine===1?'on':''}" data-vote="1" data-sid="${id}">${ICON.thumbUp}<span>${c.up}</span></button>
+      <button class="voteBtn down ${c.mine===-1?'on':''}" data-vote="-1" data-sid="${id}">${ICON.thumbDown}<span>${c.down}</span></button>
+      <button class="implBtn ${impl?'on':''}" data-impl="${id}" title="${impl?'Marcada como implementada — toque para desfazer':'Marcar esta sugestão como já implementada'}">${ICON.check}<span>${impl?'Implementada':'Marcar implementada'}</span></button>
+    </div></div>`;
+}
+function renderSugList(){
   const el=$('#sugList');if(!el)return;
-  const arr=(await readSuggestions()).slice().sort((a,b)=>(b.ts||0)-(a.ts||0));
-  if(!$('#sugList'))return; // saiu da página enquanto carregava
-  el.innerHTML=arr.length
-    ? arr.map(s=>{const c=voteCounts(s);const id=esc(sid(s));return `<div class="sugItem">
-        <div class="sugMeta"><b>${esc(s.name)}</b> · Sala ${esc(s.sala)} · ${fmtDateTime(s.ts)}</div>
-        <div class="sugBody">${esc(s.text)}</div>
-        <div class="sugVotes">
-          <button class="voteBtn up ${c.mine===1?'on':''}" data-vote="1" data-sid="${id}">${ICON.thumbUp}<span>${c.up}</span></button>
-          <button class="voteBtn down ${c.mine===-1?'on':''}" data-vote="-1" data-sid="${id}">${ICON.thumbDown}<span>${c.down}</span></button>
-        </div></div>`;}).join('')
-    : `<div class="wempty">Nenhuma sugestão ainda. Seja a primeira pessoa!</div>`;
+  const arr=(sugCache||[]).slice().sort((a,b)=>(b.ts||0)-(a.ts||0));
+  el.innerHTML=arr.length?arr.map(sugItemHtml).join(''):`<div class="wempty">Nenhuma sugestão ainda. Seja a primeira pessoa!</div>`;
   el.querySelectorAll('[data-vote]').forEach(b=>b.addEventListener('click',()=>voteSuggestion(b.dataset.sid,parseInt(b.dataset.vote,10))));
+  el.querySelectorAll('[data-impl]').forEach(b=>b.addEventListener('click',()=>toggleImplemented(b.dataset.impl)));
+}
+async function loadSuggestions(){
+  if(!$('#sugList'))return;
+  sugCache=await readSuggestions();
+  if(!$('#sugList'))return; // saiu da página enquanto carregava
+  renderSugList();
+}
+// Aplica só as sugestões que mudaram (vindas por evento), sem rebaixar a lista inteira.
+function patchSuggestions(items){
+  if(!sugCache)return; // ainda não carregou; o próximo loadSuggestions traz tudo
+  for(const id in items){
+    const v=items[id];const idx=sugCache.findIndex(s=>sid(s)===id);
+    if(v===null){ if(idx>=0)sugCache.splice(idx,1); }
+    else { if(idx>=0)sugCache[idx]=v; else sugCache.push(v); }
+  }
+  if(onSuggestions())renderSugList();
 }
 async function voteSuggestion(id,val){
-  const arr=await readSuggestions();
+  const arr=sugCache||await readSuggestions();
   const s=arr.find(x=>sid(x)===id);if(!s)return;
   if(!s.votes)s.votes={};
   const me=normPhone(user.phone);
   if(s.votes[me]===val)delete s.votes[me]; // clicar de novo no mesmo = desfaz
   else s.votes[me]=val;
+  if(sugCache)renderSugList(); // resposta imediata; o broadcast reconcilia
   const ok=await setVal('suggestions',JSON.stringify(arr),true);
-  if(ok)loadSuggestions();
-  else toast('Não consegui registrar seu voto agora.');
+  if(!ok)toast('Não consegui registrar seu voto agora.');
+}
+async function toggleImplemented(id){
+  const arr=sugCache||await readSuggestions();
+  const s=arr.find(x=>sid(x)===id);if(!s)return;
+  const now=!(s.implemented===true);
+  s.implemented=now;
+  s.implementedBy=now?user.name:'';
+  s.implementedTs=now?Date.now():0;
+  if(sugCache)renderSugList();
+  const ok=await setVal('suggestions',JSON.stringify(arr),true);
+  if(!ok)toast('Não consegui atualizar agora.');
+  else toast(now?'Marcada como implementada ✓':'Marcação removida.');
 }
 async function sendSuggestion(){
   const ta=$('#sugText');if(!ta)return;
   const text=(ta.value||'').trim();
   if(text.length<3){toast('Escreva um pouco mais, por favor.');return;}
   const btn=$('#sugSend');if(btn){btn.disabled=true;btn.textContent='Enviando…';}
-  const arr=await readSuggestions();
-  arr.push({name:user.name,sala:user.sala,phone:user.phone,text:text.slice(0,1000),ts:Date.now(),votes:{}});
+  const arr=sugCache?sugCache.slice():await readSuggestions();
+  arr.push({name:user.name,sala:user.sala,phone:user.phone,text:text.slice(0,1000),ts:Date.now(),votes:{},implemented:false,implementedBy:'',implementedTs:0});
   const ok=await setVal('suggestions',JSON.stringify(arr),true);
   if(btn){btn.disabled=false;btn.textContent='Enviar sugestão';}
-  if(ok){ta.value='';toast('Sugestão enviada. Obrigado!');loadSuggestions();}
+  if(ok){ta.value='';toast('Sugestão enviada. Obrigado!');sugCache=arr;renderSugList();}
   else toast('Não consegui enviar agora. Tente de novo.');
 }
 
 /* ===== MODAL DE NOVIDADES (mostra só 1 vez por pessoa) ===== */
-const UPDATE_VERSION='2026-05-29.2';
+const UPDATE_VERSION='2026-06-03.1';
 const UPDATES=[
-  'Vagas separadas por andar.',
-  'Topo separado em carro e moto.',
-  'Botão de estacionar ao lado de cada vaga.',
-  'Box 812 (só motos) recolhível.',
-  'Página de sugestões — agora com 👍 e 👎.',
+  'Atualização em tempo real: a tela muda sozinha quando alguém age (sem ficar recarregando).',
+  'Dá pra marcar uma sugestão como "implementada".',
+  'Vaga aparece ocupada mas não tem carro? Agora dá pra avisar com um toque.',
+  'Página de sugestões — com 👍, 👎 e selo de implementada.',
   'Lista de espera com aviso no WhatsApp.'
 ];
 async function maybeShowUpdates(){

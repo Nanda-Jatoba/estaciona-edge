@@ -93,8 +93,10 @@ function validCallEntry(c) {
 /*
  * Aplica a transição pedida pelo cliente de forma autoritativa.
  * actor = telefone (normalizado) de quem está agindo.
+ * takeoverSlots = vagas que o actor pode ASSUMIR no lugar de outra pessoa
+ *   (vaga marcada por ele como "sem carro"); fora dessa lista, ninguém troca o ocupante.
  */
-function mergeOccupancy(storedOcc, newOcc, actor) {
+function mergeOccupancy(storedOcc, newOcc, actor, takeoverSlots) {
   const result = {};
   // 1) parte do que já existe; só remove se o dono for o próprio actor.
   for (const k of Object.keys(storedOcc)) {
@@ -106,8 +108,10 @@ function mergeOccupancy(storedOcc, newOcc, actor) {
     } else if (normDigits(cur.phone) === normDigits(incoming.phone)) {
       // mesma pessoa: só permite atualizar se o próprio dono está agindo
       result[k] = (actor && normDigits(cur.phone) === actor && validOccEntry(k, incoming)) ? incoming : cur;
+    } else if (actor && normDigits(incoming.phone) === actor && validOccEntry(k, incoming) && takeoverSlots && takeoverSlots.has(k)) {
+      result[k] = incoming; // takeover: você assume uma vaga que marcou como vazia
     } else {
-      result[k] = cur; // tentativa de trocar o ocupante de uma vaga ocupada -> ignora
+      result[k] = cur; // qualquer outra troca de ocupante -> ignora
     }
   }
   // 2) novas ocupações: só em vaga livre e só colocando você mesmo.
@@ -192,6 +196,76 @@ function sanitizeVotes(v) {
   return out;
 }
 
+/* ===== Avisos de "vaga marcada como cheia, mas sem carro" =====
+ * disputes[slotId] = { telefone: { name, phone, ts } }
+ * Cada pessoa só registra/retira o PRÓPRIO aviso, e só em vaga ocupada por OUTRA pessoa.
+ */
+function validDisputeEntry(d) {
+  if (typeof d !== 'object' || d === null) return false;
+  if (!validBrPhone(d.phone)) return false;
+  if (typeof d.name !== 'string' || d.name.trim().length < 2 || d.name.length > 60) return false;
+  return true;
+}
+function mergeDisputes(storedDisputes, newDisputes, actor, occ) {
+  const result = {};
+  // mantém os avisos já existentes (de qualquer pessoa); remove só o do próprio actor se ele tirou.
+  for (const slot of Object.keys(storedDisputes)) {
+    const cur = storedDisputes[slot] || {};
+    const incoming = (newDisputes[slot] && typeof newDisputes[slot] === 'object') ? newDisputes[slot] : undefined;
+    const kept = {};
+    for (const ph of Object.keys(cur)) {
+      if (incoming && incoming[ph] === undefined && actor && normDigits(ph) === actor) continue; // tirou o próprio aviso
+      kept[ph] = cur[ph];
+    }
+    if (Object.keys(kept).length) result[slot] = kept;
+  }
+  // adiciona o aviso do próprio actor (nunca o de outra pessoa).
+  for (const slot of Object.keys(newDisputes)) {
+    const incoming = newDisputes[slot];
+    if (typeof incoming !== 'object' || incoming === null) continue;
+    for (const ph of Object.keys(incoming)) {
+      if (!actor || normDigits(ph) !== actor) continue;
+      const d = incoming[ph];
+      if (!validDisputeEntry(d) || normDigits(d.phone) !== actor) continue;
+      (result[slot] = result[slot] || {})[actor] = { name: d.name, phone: d.phone, ts: (typeof d.ts === 'number' && isFinite(d.ts)) ? d.ts : Date.now() };
+    }
+  }
+  // limpeza: aviso só vale para vaga ocupada por OUTRA pessoa.
+  for (const slot of Object.keys(result)) {
+    const o = occ[slot];
+    if (!o) { delete result[slot]; continue; }                         // vaga livre -> sem aviso
+    for (const ph of Object.keys(result[slot])) {
+      if (normDigits(o.phone) === normDigits(ph)) delete result[slot][ph]; // ocupante não se avisa
+    }
+    if (!Object.keys(result[slot]).length) delete result[slot];
+  }
+  return result;
+}
+
+/* ===== Delta: o que mudou entre dois mapas {id: obj} =====
+ * Devolve só os ids alterados (novo valor) ou removidos (null) — nunca o estado inteiro. */
+function mapDelta(before, after) {
+  const delta = {};
+  for (const k of Object.keys(after)) {
+    if (JSON.stringify(before[k]) !== JSON.stringify(after[k])) delta[k] = after[k];
+  }
+  for (const k of Object.keys(before)) {
+    if (!(k in after)) delta[k] = null;
+  }
+  return delta;
+}
+
+/* ===== SSE: empurra mudanças para os clientes (substitui o polling) =====
+ * Um cliente abre UMA conexão longa em /api/events; o servidor só escreve quando
+ * alguém faz uma ação, e manda apenas os ids que mudaram. */
+const sseClients = new Set();
+let evSeq = 0;
+function broadcast(payload) {
+  evSeq++;
+  const frame = 'id: ' + evSeq + '\ndata: ' + JSON.stringify(payload) + '\n\n';
+  for (const res of sseClients) { try { res.write(frame); } catch { /* cliente caiu */ } }
+}
+
 /* ===== App ===== */
 const app = express();
 app.disable('x-powered-by');
@@ -218,6 +292,23 @@ app.get('/api/health', async (_req, res) => {
   catch (e) { res.status(500).json({ ok: false, error: String(e.message || e) }); }
 });
 
+// Stream de eventos: o cliente assina e recebe só os ids que mudaram (sem polling).
+app.get('/api/events', (req, res) => {
+  res.set({
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache, no-transform',
+    Connection: 'keep-alive',
+    'X-Accel-Buffering': 'no', // nginx: não bufferiza o stream
+  });
+  if (res.flushHeaders) res.flushHeaders();
+  res.write('retry: 5000\n\n'); // se a conexão cair, o browser reconecta em 5s
+  res.write(': ok\n\n');
+  sseClients.add(res);
+  // keep-alive (servidor -> cliente): mantém a conexão viva através de proxies.
+  const ping = setInterval(() => { try { res.write(': ping\n\n'); } catch { /* noop */ } }, 25000);
+  req.on('close', () => { clearInterval(ping); sseClients.delete(res); });
+});
+
 app.get('/api/kv/:key', async (req, res) => {
   const k = req.params.key;
   if (!allowedKey(k)) return res.status(400).json({ error: 'bad key' });
@@ -227,8 +318,8 @@ app.get('/api/kv/:key', async (req, res) => {
     let value = r.rows[0].value;
     if (k === 'state') { // reset diário no próprio read
       const today = spDateStr();
-      try { const st = JSON.parse(value); if (!st || st.date !== today) value = JSON.stringify({ date: today, occupancy: {}, calls: {}, waitlist: {} }); }
-      catch { value = JSON.stringify({ date: today, occupancy: {}, calls: {}, waitlist: {} }); }
+      try { const st = JSON.parse(value); if (!st || st.date !== today) value = JSON.stringify({ date: today, occupancy: {}, calls: {}, waitlist: {}, disputes: {} }); }
+      catch { value = JSON.stringify({ date: today, occupancy: {}, calls: {}, waitlist: {}, disputes: {} }); }
     }
     res.json({ value });
   } catch (e) {
@@ -251,6 +342,7 @@ app.put('/api/kv/:key', writeLimiter, async (req, res) => {
     const newOcc = (incoming.occupancy && typeof incoming.occupancy === 'object' && !Array.isArray(incoming.occupancy)) ? incoming.occupancy : {};
     const newCalls = (incoming.calls && typeof incoming.calls === 'object' && !Array.isArray(incoming.calls)) ? incoming.calls : {};
     const newWait = (incoming.waitlist && typeof incoming.waitlist === 'object' && !Array.isArray(incoming.waitlist)) ? incoming.waitlist : {};
+    const newDisp = (incoming.disputes && typeof incoming.disputes === 'object' && !Array.isArray(incoming.disputes)) ? incoming.disputes : {};
     if (Object.keys(newOcc).length > MAX_SLOTS * 2) return res.status(400).json({ error: 'occupancy grande demais' });
     const actor = normDigits(req.get('X-Actor'));
     const today = spDateStr();
@@ -259,22 +351,37 @@ app.put('/api/kv/:key', writeLimiter, async (req, res) => {
     try {
       await client.query('begin');
       await client.query('select pg_advisory_xact_lock(729145)'); // serializa escritas do state
-      let storedOcc = {}, storedCalls = {}, storedWait = {};
+      let storedOcc = {}, storedCalls = {}, storedWait = {}, storedDisp = {};
       const r = await client.query('select value from kv where key = $1', ['state']);
       if (r.rows.length) {
-        try { const st = JSON.parse(r.rows[0].value); if (st && st.date === today) { storedOcc = st.occupancy || {}; storedCalls = st.calls || {}; storedWait = st.waitlist || {}; } }
+        try { const st = JSON.parse(r.rows[0].value); if (st && st.date === today) { storedOcc = st.occupancy || {}; storedCalls = st.calls || {}; storedWait = st.waitlist || {}; storedDisp = st.disputes || {}; } }
         catch { /* estado corrompido: trata como vazio */ }
       }
-      const mergedOcc = mergeOccupancy(storedOcc, newOcc, actor);
+      // Vagas que o actor pode ASSUMIR: aquelas que ele mesmo marcou como "sem carro"
+      // nesta requisição, e desde que ele não esteja estacionado em outro lugar.
+      const actorParked = !!actor && Object.values(storedOcc).some((o) => normDigits(o.phone) === actor);
+      const takeoverSlots = new Set();
+      if (actor && !actorParked) {
+        for (const slot of Object.keys(newDisp)) {
+          const d = newDisp[slot];
+          if (d && typeof d === 'object' && Object.keys(d).some((ph) => normDigits(ph) === actor)) takeoverSlots.add(slot);
+        }
+      }
+      const mergedOcc = mergeOccupancy(storedOcc, newOcc, actor, takeoverSlots);
+      const mergedCalls = mergeCalls(storedCalls, newCalls, actor);
       const mergedWait = mergeWaitlist(storedWait, newWait, actor);
       // quem está estacionado não fica na lista de espera
       const parkedPhones = new Set(Object.values(mergedOcc).map((o) => normDigits(o.phone)));
       for (const k of Object.keys(mergedWait)) if (parkedPhones.has(normDigits(k))) delete mergedWait[k];
+      const mergedDisp = mergeDisputes(storedDisp, newDisp, actor, mergedOcc);
+      // vaga assumida (takeover efetivado) -> tem carro de novo, limpa os avisos dela
+      for (const k of takeoverSlots) if (mergedOcc[k] && normDigits(mergedOcc[k].phone) === actor) delete mergedDisp[k];
       const merged = JSON.stringify({
         date: today,
         occupancy: mergedOcc,
-        calls: mergeCalls(storedCalls, newCalls, actor),
+        calls: mergedCalls,
         waitlist: mergedWait,
+        disputes: mergedDisp,
       });
       await client.query(
         `insert into kv (key, value, updated_at) values ('state', $1, now())
@@ -282,6 +389,14 @@ app.put('/api/kv/:key', writeLimiter, async (req, res) => {
         [merged]
       );
       await client.query('commit');
+      // Empurra para os outros clientes só o que mudou (ids), não o estado inteiro.
+      const occD = mapDelta(storedOcc, mergedOcc);
+      const callsD = mapDelta(storedCalls, mergedCalls);
+      const waitD = mapDelta(storedWait, mergedWait);
+      const dispD = mapDelta(storedDisp, mergedDisp);
+      if (Object.keys(occD).length || Object.keys(callsD).length || Object.keys(waitD).length || Object.keys(dispD).length) {
+        broadcast({ t: 'state', date: today, occ: occD, calls: callsD, wait: waitD, disp: dispD });
+      }
       return res.json({ value: merged });
     } catch (e) {
       try { await client.query('rollback'); } catch { /* noop */ }
@@ -326,6 +441,9 @@ app.put('/api/kv/:key', writeLimiter, async (req, res) => {
       let stored = [];
       const r = await client.query('select value from kv where key = $1', ['suggestions']);
       if (r.rows.length) { try { const a = JSON.parse(r.rows[0].value); if (Array.isArray(a)) stored = a.filter(validSuggestion); } catch { /* vazio */ } }
+      // snapshot do "antes" por id (string, para não compartilhar referência com byId)
+      const beforeMap = {};
+      for (const s of stored) beforeMap[normDigits(s.phone) + '|' + s.ts] = JSON.stringify(s);
       // mapa por id (telefone|ts); preserva a ordem (cronológica) do que já existe
       const byId = new Map();
       for (const s of stored) { s.votes = sanitizeVotes(s.votes); byId.set(normDigits(s.phone) + '|' + s.ts, s); }
@@ -336,20 +454,36 @@ app.put('/api/kv/:key', writeLimiter, async (req, res) => {
           // já existe: texto/autor são imutáveis; cada um só mexe no PRÓPRIO voto
           const cur = byId.get(id);
           if (actor) { if (inVotes[actor] === 1 || inVotes[actor] === -1) cur.votes[actor] = inVotes[actor]; else delete cur.votes[actor]; }
+          // marcar/desmarcar como implementada (qualquer pessoa logada pode sinalizar)
+          if (actor && typeof s.implemented === 'boolean') {
+            cur.implemented = s.implemented;
+            if (s.implemented) {
+              cur.implementedBy = (typeof s.implementedBy === 'string') ? s.implementedBy.slice(0, 60) : (cur.implementedBy || '');
+              cur.implementedTs = (typeof s.implementedTs === 'number' && isFinite(s.implementedTs)) ? s.implementedTs : (cur.implementedTs || Date.now());
+            } else { cur.implementedBy = ''; cur.implementedTs = 0; }
+          }
         } else {
           // nova sugestão: aceita, mas só com o voto do próprio actor
-          const fresh = { name: s.name, sala: String(s.sala), phone: s.phone, text: s.text, ts: s.ts, votes: {} };
+          const fresh = { name: s.name, sala: String(s.sala), phone: s.phone, text: s.text, ts: s.ts, votes: {}, implemented: false, implementedBy: '', implementedTs: 0 };
           if (actor && (inVotes[actor] === 1 || inVotes[actor] === -1)) fresh.votes[actor] = inVotes[actor];
           byId.set(id, fresh);
         }
       }
-      const out = JSON.stringify(Array.from(byId.values()).slice(-500));
+      const finalArr = Array.from(byId.values()).slice(-500);
+      const out = JSON.stringify(finalArr);
       await client.query(
         `insert into kv (key, value, updated_at) values ('suggestions', $1, now())
          on conflict (key) do update set value = excluded.value, updated_at = now()`,
         [out]
       );
       await client.query('commit');
+      // broadcast: só as sugestões que mudaram (por id), não a lista inteira
+      const afterMap = {};
+      for (const s of finalArr) afterMap[normDigits(s.phone) + '|' + s.ts] = s;
+      const items = {};
+      for (const id of Object.keys(afterMap)) if (beforeMap[id] !== JSON.stringify(afterMap[id])) items[id] = afterMap[id];
+      for (const id of Object.keys(beforeMap)) if (!(id in afterMap)) items[id] = null;
+      if (Object.keys(items).length) broadcast({ t: 'sug', items });
       return res.json({ value: out });
     } catch (e) {
       try { await client.query('rollback'); } catch { /* noop */ }

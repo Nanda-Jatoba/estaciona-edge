@@ -1,5 +1,5 @@
 /*
- * Gera public/index.html a partir de ../vagas_2.html injetando o shim
+ * Gera public/index.html a partir de ../frontend.html injetando o shim
  * window.storage (escopo compartilhado -> /api/kv ; escopo pessoal -> localStorage).
  * Idempotente: roda quantas vezes quiser.
  */
@@ -8,7 +8,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const SRC = join(__dirname, '..', 'vagas_2.html');
+const SRC = join(__dirname, '..', 'frontend.html');
 const OUT_DIR = join(__dirname, 'public');
 const OUT = join(OUT_DIR, 'index.html');
 

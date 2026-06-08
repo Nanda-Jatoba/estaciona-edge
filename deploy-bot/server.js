@@ -28,6 +28,10 @@ if (fs.existsSync(envPath)) {
 }
 
 const BOT_PORT = parseInt(process.env.BOT_PORT || '3200', 10);
+// Interface de bind. A Evolution roda em container Docker, então o webhook dela
+// não enxerga o 127.0.0.1 do host — use o IP do gateway da bridge (ex.: 172.20.0.1)
+// para que o container alcance o bot sem expor a porta na internet.
+const BOT_HOST = process.env.BOT_HOST || '127.0.0.1';
 const WEBHOOK_PATH = process.env.WEBHOOK_PATH || '/webhook';
 const EVOLUTION_URL = (process.env.EVOLUTION_URL || 'http://127.0.0.1:8089').replace(/\/$/, '');
 const APIKEY = process.env.EVOLUTION_APIKEY || '';
@@ -123,6 +127,6 @@ const server = http.createServer((req, res) => {
   });
 });
 
-server.listen(BOT_PORT, '127.0.0.1', () => {
-  console.log(`deploy-bot ouvindo em http://127.0.0.1:${BOT_PORT}${WEBHOOK_PATH} (instância ${INSTANCE})`);
+server.listen(BOT_PORT, BOT_HOST, () => {
+  console.log(`deploy-bot ouvindo em http://${BOT_HOST}:${BOT_PORT}${WEBHOOK_PATH} (instância ${INSTANCE})`);
 });

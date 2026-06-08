@@ -39,9 +39,11 @@ chmod +x deploy.sh
 pm2 start ecosystem.config.js && pm2 save
 
 # 4. registra o webhook na instância da Evolution
+#    IMPORTANTE: a Evolution roda em container Docker — o webhook precisa apontar para
+#    o gateway da bridge (BOT_HOST), NÃO para 127.0.0.1 (que seria o localhost do container).
 curl -X POST http://127.0.0.1:8089/webhook/set/psiclinic-alerts \
   -H "apikey: $EVOLUTION_APIKEY" -H 'Content-Type: application/json' \
-  -d '{"webhook":{"enabled":true,"url":"http://127.0.0.1:3200/webhook","events":["MESSAGES_UPSERT"]}}'
+  -d '{"webhook":{"enabled":true,"url":"http://172.20.0.1:3200/webhook","events":["MESSAGES_UPSERT"]}}'
 ```
 
 ## Atualizar o bot

@@ -160,6 +160,13 @@
   .miniBtn.rep.on{color:var(--warn);background:var(--warn-soft);border-color:transparent;}
   .phantomTag{display:inline-flex;align-items:center;gap:4px;margin-left:7px;font-size:.6rem;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:var(--warn);background:var(--warn-soft);padding:2px 7px;border-radius:6px;vertical-align:middle;}
   .phantomTag svg{width:11px;height:11px;}
+  .occAlertTag{display:inline-flex;align-items:center;gap:4px;margin-left:7px;font-size:.6rem;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:var(--bad);background:var(--bad-soft);padding:2px 7px;border-radius:6px;vertical-align:middle;}
+  .occAlertTag svg{width:11px;height:11px;}
+  .slotBtns{display:flex;align-items:center;gap:6px;flex:none;}
+  .slotMore{flex:none;width:38px;height:38px;display:inline-flex;align-items:center;justify-content:center;border-radius:10px;background:transparent;border:1px solid transparent;color:var(--muted2);}
+  .slotMore svg{width:20px;height:20px;}
+  .slotMore:hover{background:var(--surface);border-color:var(--border2);color:var(--ink);}
+  .slotMore.on{color:var(--bad);background:var(--bad-soft);}
 
   .boxAct{padding:13px 15px;border-top:1px solid var(--border);display:flex;flex-direction:column;gap:10px;}
   .bigPark{width:100%;padding:16px;border-radius:12px;font-weight:700;font-size:1.05rem;background:var(--surface);color:var(--ink);border:1px solid var(--border2);}
@@ -322,7 +329,7 @@ async function getVal(k,s){try{const r=await store.get(k,s);return r?r.value:nul
 async function setVal(k,v,s){try{await store.set(k,v,s);return true;}catch(e){console.error(e);return false;}}
 
 /* ===== ESTADO ===== */
-let state={date:'',occupancy:{},calls:{},waitlist:{},disputes:{}};
+let state={date:'',occupancy:{},calls:{},waitlist:{},disputes:{},occupiedAlerts:{}};
 let occupancy={};
 let collapsed={};                 // andares recolhidos
 FLOORS.forEach(f=>{collapsed[f]=true;}); // todos começam fechados
@@ -331,13 +338,13 @@ let user=null, evSource=null, liveOpened=false, liveBound=false, currentTheme='l
 const slug=s=>String(s).replace(/\s+/g,'-');
 const localOf=id=>{const v=VAGAS.find(x=>x.id===id);return v?v.local:null;};
 function todayStr(){const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
-function normState(){if(!state.occupancy)state.occupancy={};if(!state.calls)state.calls={};if(!state.waitlist)state.waitlist={};if(!state.disputes)state.disputes={};}
+function normState(){if(!state.occupancy)state.occupancy={};if(!state.calls)state.calls={};if(!state.waitlist)state.waitlist={};if(!state.disputes)state.disputes={};if(!state.occupiedAlerts)state.occupiedAlerts={};}
 async function loadState(){
   let raw=await getVal('state',true);
-  if(raw){try{state=JSON.parse(raw);}catch(e){state={date:todayStr(),occupancy:{},calls:{},waitlist:{},disputes:{}};}}
-  else state={date:todayStr(),occupancy:{},calls:{},waitlist:{},disputes:{}};
+  if(raw){try{state=JSON.parse(raw);}catch(e){state={date:todayStr(),occupancy:{},calls:{},waitlist:{},disputes:{},occupiedAlerts:{}};}}
+  else state={date:todayStr(),occupancy:{},calls:{},waitlist:{},disputes:{},occupiedAlerts:{}};
   normState();
-  if(state.date!==todayStr()){ state={date:todayStr(),occupancy:{},calls:{},waitlist:{},disputes:{}}; raw=JSON.stringify(state); await setVal('state',raw,true); }
+  if(state.date!==todayStr()){ state={date:todayStr(),occupancy:{},calls:{},waitlist:{},disputes:{},occupiedAlerts:{}}; raw=JSON.stringify(state); await setVal('state',raw,true); }
   occupancy=state.occupancy;
   polledRaw=raw; // referência do que já está refletido na tela
 }
@@ -368,7 +375,8 @@ const ICON={
   check:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>',
   thumbUp:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 10v11M2 12v7a2 2 0 0 0 2 2h13.5a2 2 0 0 0 2-1.7l1.3-7a2 2 0 0 0-2-2.3H14V4.5A2.5 2.5 0 0 0 11.5 2L7 10z"/></svg>',
   thumbDown:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 14V3M22 12V5a2 2 0 0 0-2-2H6.5a2 2 0 0 0-2 1.7l-1.3 7A2 2 0 0 0 5.2 14H10v5.5A2.5 2.5 0 0 0 12.5 22L17 14z"/></svg>',
-  warn:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>'
+  warn:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>',
+  more:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/></svg>'
 };
 function logoSrc(){return currentTheme==='dark'?LOGO_DARK:LOGO_LIGHT;}
 function themeBtnHTML(extraClass){return `<button class="iconbtn ${extraClass||''}" data-themebtn title="${currentTheme==='dark'?'Modo claro':'Modo escuro'}">${currentTheme==='dark'?ICON.sun:ICON.moon}</button>`;}
@@ -475,6 +483,7 @@ function applyLiveEvent(raw){
     applyDelta(state.calls,d.calls);
     applyDelta(state.waitlist,d.wait);
     applyDelta(state.disputes,d.disp);
+    applyDelta(state.occupiedAlerts,d.oalert);
     occupancy=state.occupancy;
     if(onDashboard()){ renderVagas(); refreshStats(); renderCallBanner(); renderWaitlist(); }
   }else if(d.t==='sug'){
@@ -649,6 +658,7 @@ function bindVagasScope(scope){
   scope.querySelectorAll('[data-park]').forEach(b=>b.addEventListener('click',()=>park(b.dataset.park)));
   scope.querySelectorAll('[data-free]').forEach(b=>b.addEventListener('click',()=>freeSlot(b.dataset.free)));
   scope.querySelectorAll('[data-phantom]').forEach(b=>b.addEventListener('click',()=>openPhantomSheet(b.dataset.phantom)));
+  scope.querySelectorAll('[data-occalert]').forEach(b=>b.addEventListener('click',()=>openOccupiedSheet(b.dataset.occalert)));
   scope.querySelectorAll('[data-callbtn]').forEach(b=>b.addEventListener('click',()=>openCallSheet({name:b.dataset.name,phone:b.dataset.phone,sala:b.dataset.sala},b.dataset.box,b.dataset.local)));
 }
 function renderVagas(){
@@ -666,6 +676,14 @@ function mySpotKey(){ const me=normPhone(user.phone); for(const k in occupancy){
 // Avisos de "marcada como ocupada, mas pode estar vazia" para uma vaga.
 function disputeInfo(slotKey){
   const d=(state.disputes&&state.disputes[slotKey])||null;
+  if(!d)return{count:0,mine:false};
+  const me=normPhone(user.phone);
+  const phones=Object.keys(d);
+  return{count:phones.length,mine:phones.some(p=>normPhone(p)===me)};
+}
+// Avisos de "marcada como livre no sistema, mas pode haver um carro sem cadastro".
+function occAlertInfo(slotKey){
+  const d=(state.occupiedAlerts&&state.occupiedAlerts[slotKey])||null;
   if(!d)return{count:0,mine:false};
   const me=normPhone(user.phone);
   const phones=Object.keys(d);
@@ -704,18 +722,24 @@ function renderVaga(v){
     const mine=o&&normPhone(o.phone)===me;
     const slotKey=v.id+'-'+i;
     const di=o?disputeInfo(slotKey):{count:0,mine:false};
-    // à direita: estacionar (vaga livre) OU "Sem carro?" (vaga de outra pessoa)
+    const oa=!o?occAlertInfo(slotKey):{count:0,mine:false};
+    // à direita: estacionar / avisar "pode estar ocupada" (vaga livre) OU "Sem carro?" (vaga de outra pessoa)
     let right='';
-    if(!o&&!iAmParked) right=`<button class="miniBtn park" data-park="${slotKey}">Estacionar</button>`;
+    if(!o){
+      const moreBtn=`<button class="slotMore ${oa.mine?'on':''}" data-occalert="${slotKey}" aria-label="Mais opções" title="${oa.mine?'Você avisou que pode estar ocupada':'Mais opções (avisar que pode estar ocupada)'}">${ICON.more}</button>`;
+      right=iAmParked?moreBtn:`<div class="slotBtns"><button class="miniBtn park" data-park="${slotKey}">Estacionar</button>${moreBtn}</div>`;
+    }
     else if(o&&!mine) right=`<button class="miniBtn rep ${di.mine?'on':''}" data-phantom="${slotKey}" title="${di.mine?'Você avisou que pode estar vazia':'A vaga aparece ocupada mas não tem carro? Toque para ver as opções'}">${di.mine?'Avisado':'Sem carro?'}</button>`;
     // chip "pode estar vazia" ao lado do nome (quando alguém reportou)
     const phantomTag=di.count?`<span class="phantomTag" title="${di.count} aviso${di.count>1?'s':''} de que pode estar vazia">${ICON.warn}pode estar vazia</span>`:'';
+    // chip "pode estar ocupada" ao lado de "Livre" (carro sem cadastro)
+    const occAlertTag=oa.count?`<span class="occAlertTag" title="${oa.count} aviso${oa.count>1?'s':''} de que pode haver um carro sem cadastro">${ICON.warn}pode estar ocupada</span>`:'';
     body+=`<div class="slot ${o?'taken':''}">
       <div class="vic">${icon}</div>
       <div class="scol">
         <div class="slabel">${s.label}</div>
         ${o?`<div class="sname">${esc(o.name)}${mine?'<span class="tagme">VOCÊ</span>':''}${phantomTag}</div><div class="ssala">Sala ${esc(o.sala)}</div>`
-            :`<div class="sname livre">Livre</div>`}
+            :`<div class="sname livre">Livre${occAlertTag}</div>`}
       </div>${right}</div>`;
   });
 
@@ -852,7 +876,53 @@ async function unreportPhantom(key){
   toast('Aviso retirado.');
   renderOneFloor(localOf(vid));
 }
-async function doLogout(){stopLive();await setVal('currentUser','',false);try{await store.delete('currentUser',false);}catch(e){}user=null;occupancy={};state={date:todayStr(),occupancy:{},calls:{},waitlist:{},disputes:{}};renderLogin();}
+/* ===== AVISO: VAGA LIVRE NO SISTEMA, MAS PODE TER CARRO SEM CADASTRO ===== */
+// Folha simples: avisar que pode estar ocupada (carro sem registro) OU retirar o próprio aviso.
+function openOccupiedSheet(key){
+  if(occupancy[key]){toast('Essa vaga já consta ocupada no sistema.');renderOneFloor(localOf(key.split('-')[0]));refreshStats();return;}
+  const oa=occAlertInfo(key);const vid=key.split('-')[0];
+  const [, idx]=key.split('-');const v=VAGAS.find(x=>x.id===vid);const slot=slotsOf(v)[+idx];
+  const mainOpt=oa.mine
+    ? `<button class="opt" data-act="unalert"><span class="oic">${ICON.warn}</span>
+        <span class="otxt"><span class="ot1">Retirar meu aviso</span><span class="ot2">Você havia marcado que pode estar ocupada</span></span></button>`
+    : `<button class="opt" data-act="alert"><span class="oic">${ICON.warn}</span>
+        <span class="otxt"><span class="ot1">Avisar que pode estar ocupada</span><span class="ot2">Tem um carro aqui que não aparece no sistema — só mostra um aviso</span></span></button>`;
+  const sheet=$('#sheet');
+  sheet.innerHTML=`<div class="ov" data-close></div>
+    <div class="box">
+      <div class="grip"></div>
+      <div class="sh-h">Vaga ${esc(vid)} · ${esc(slot.label)}</div>
+      <div class="sh-s">${oa.count?('Há '+oa.count+' aviso'+(oa.count>1?'s':'')+' de que pode haver um carro sem cadastro'):'A vaga aparece livre no sistema'}. O que você quer fazer?</div>
+      ${mainOpt}
+      <button class="opt cancel" data-close>Cancelar</button>
+    </div>`;
+  sheet.classList.add('show');
+  sheet.querySelectorAll('[data-close]').forEach(e=>e.addEventListener('click',closeSheet));
+  sheet.querySelectorAll('[data-act]').forEach(b=>b.addEventListener('click',()=>{
+    const a=b.dataset.act;closeSheet();
+    if(a==='alert')reportOccupied(key);
+    else if(a==='unalert')unreportOccupied(key);
+  }));
+}
+async function reportOccupied(key){
+  await loadState();
+  const vid=key.split('-')[0];
+  if(occupancy[key]){toast('Essa vaga já consta ocupada no sistema.');renderOneFloor(localOf(vid));refreshStats();return;}
+  if(!state.occupiedAlerts[key])state.occupiedAlerts[key]={};
+  state.occupiedAlerts[key][normPhone(user.phone)]={name:user.name,phone:user.phone,ts:Date.now()};
+  await saveState();
+  toast('Aviso enviado: a vaga pode estar ocupada.');
+  renderOneFloor(localOf(vid));
+}
+async function unreportOccupied(key){
+  await loadState();
+  const vid=key.split('-')[0];
+  if(state.occupiedAlerts[key]){delete state.occupiedAlerts[key][normPhone(user.phone)];if(!Object.keys(state.occupiedAlerts[key]).length)delete state.occupiedAlerts[key];}
+  await saveState();
+  toast('Aviso retirado.');
+  renderOneFloor(localOf(vid));
+}
+async function doLogout(){stopLive();await setVal('currentUser','',false);try{await store.delete('currentUser',false);}catch(e){}user=null;occupancy={};state={date:todayStr(),occupancy:{},calls:{},waitlist:{},disputes:{},occupiedAlerts:{}};renderLogin();}
 
 /* ===== LISTA DE ESPERA ===== */
 function renderWaitlist(){
@@ -1023,8 +1093,9 @@ async function sendSuggestion(){
 }
 
 /* ===== MODAL DE NOVIDADES (mostra só 1 vez por pessoa) ===== */
-const UPDATE_VERSION='2026-06-03.1';
+const UPDATE_VERSION='2026-06-08.1';
 const UPDATES=[
+  'Vaga livre mas tem um carro sem cadastro? Agora dá pra avisar pelo menu ⋮ da vaga.',
   'Atualização em tempo real: a tela muda sozinha quando alguém age (sem ficar recarregando).',
   'Dá pra marcar uma sugestão como "implementada".',
   'Vaga aparece ocupada mas não tem carro? Agora dá pra avisar com um toque.',

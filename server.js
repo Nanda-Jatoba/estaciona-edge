@@ -242,6 +242,47 @@ function mergeDisputes(storedDisputes, newDisputes, actor, occ) {
   return result;
 }
 
+/* ===== Avisos de "vaga livre no sistema, mas pode ter carro sem cadastro" =====
+ * occupiedAlerts[slotId] = { telefone: { name, phone, ts } }
+ * Cada pessoa só registra/retira o PRÓPRIO aviso, e só vale enquanto a vaga estiver LIVRE.
+ */
+function validOccAlertEntry(d) {
+  if (typeof d !== 'object' || d === null) return false;
+  if (!validBrPhone(d.phone)) return false;
+  if (typeof d.name !== 'string' || d.name.trim().length < 2 || d.name.length > 60) return false;
+  return true;
+}
+function mergeOccAlerts(storedAlerts, newAlerts, actor, occ) {
+  const result = {};
+  // mantém os avisos já existentes (de qualquer pessoa); remove só o do próprio actor se ele tirou.
+  for (const slot of Object.keys(storedAlerts)) {
+    const cur = storedAlerts[slot] || {};
+    const incoming = (newAlerts[slot] && typeof newAlerts[slot] === 'object') ? newAlerts[slot] : undefined;
+    const kept = {};
+    for (const ph of Object.keys(cur)) {
+      if (incoming && incoming[ph] === undefined && actor && normDigits(ph) === actor) continue; // tirou o próprio aviso
+      kept[ph] = cur[ph];
+    }
+    if (Object.keys(kept).length) result[slot] = kept;
+  }
+  // adiciona o aviso do próprio actor (nunca o de outra pessoa).
+  for (const slot of Object.keys(newAlerts)) {
+    const incoming = newAlerts[slot];
+    if (typeof incoming !== 'object' || incoming === null) continue;
+    for (const ph of Object.keys(incoming)) {
+      if (!actor || normDigits(ph) !== actor) continue;
+      const d = incoming[ph];
+      if (!validOccAlertEntry(d) || normDigits(d.phone) !== actor) continue;
+      (result[slot] = result[slot] || {})[actor] = { name: d.name, phone: d.phone, ts: (typeof d.ts === 'number' && isFinite(d.ts)) ? d.ts : Date.now() };
+    }
+  }
+  // limpeza: aviso só vale para vaga LIVRE. Se já tem ocupante registrado, descarta.
+  for (const slot of Object.keys(result)) {
+    if (occ[slot]) delete result[slot];
+  }
+  return result;
+}
+
 /* ===== Delta: o que mudou entre dois mapas {id: obj} =====
  * Devolve só os ids alterados (novo valor) ou removidos (null) — nunca o estado inteiro. */
 function mapDelta(before, after) {
@@ -318,8 +359,8 @@ app.get('/api/kv/:key', async (req, res) => {
     let value = r.rows[0].value;
     if (k === 'state') { // reset diário no próprio read
       const today = spDateStr();
-      try { const st = JSON.parse(value); if (!st || st.date !== today) value = JSON.stringify({ date: today, occupancy: {}, calls: {}, waitlist: {}, disputes: {} }); }
-      catch { value = JSON.stringify({ date: today, occupancy: {}, calls: {}, waitlist: {}, disputes: {} }); }
+      try { const st = JSON.parse(value); if (!st || st.date !== today) value = JSON.stringify({ date: today, occupancy: {}, calls: {}, waitlist: {}, disputes: {}, occupiedAlerts: {} }); }
+      catch { value = JSON.stringify({ date: today, occupancy: {}, calls: {}, waitlist: {}, disputes: {}, occupiedAlerts: {} }); }
     }
     res.json({ value });
   } catch (e) {
@@ -343,6 +384,7 @@ app.put('/api/kv/:key', writeLimiter, async (req, res) => {
     const newCalls = (incoming.calls && typeof incoming.calls === 'object' && !Array.isArray(incoming.calls)) ? incoming.calls : {};
     const newWait = (incoming.waitlist && typeof incoming.waitlist === 'object' && !Array.isArray(incoming.waitlist)) ? incoming.waitlist : {};
     const newDisp = (incoming.disputes && typeof incoming.disputes === 'object' && !Array.isArray(incoming.disputes)) ? incoming.disputes : {};
+    const newOAlert = (incoming.occupiedAlerts && typeof incoming.occupiedAlerts === 'object' && !Array.isArray(incoming.occupiedAlerts)) ? incoming.occupiedAlerts : {};
     if (Object.keys(newOcc).length > MAX_SLOTS * 2) return res.status(400).json({ error: 'occupancy grande demais' });
     const actor = normDigits(req.get('X-Actor'));
     const today = spDateStr();
@@ -351,10 +393,10 @@ app.put('/api/kv/:key', writeLimiter, async (req, res) => {
     try {
       await client.query('begin');
       await client.query('select pg_advisory_xact_lock(729145)'); // serializa escritas do state
-      let storedOcc = {}, storedCalls = {}, storedWait = {}, storedDisp = {};
+      let storedOcc = {}, storedCalls = {}, storedWait = {}, storedDisp = {}, storedOAlert = {};
       const r = await client.query('select value from kv where key = $1', ['state']);
       if (r.rows.length) {
-        try { const st = JSON.parse(r.rows[0].value); if (st && st.date === today) { storedOcc = st.occupancy || {}; storedCalls = st.calls || {}; storedWait = st.waitlist || {}; storedDisp = st.disputes || {}; } }
+        try { const st = JSON.parse(r.rows[0].value); if (st && st.date === today) { storedOcc = st.occupancy || {}; storedCalls = st.calls || {}; storedWait = st.waitlist || {}; storedDisp = st.disputes || {}; storedOAlert = st.occupiedAlerts || {}; } }
         catch { /* estado corrompido: trata como vazio */ }
       }
       // Vagas que o actor pode ASSUMIR: aquelas que ele mesmo marcou como "sem carro"
@@ -376,12 +418,14 @@ app.put('/api/kv/:key', writeLimiter, async (req, res) => {
       const mergedDisp = mergeDisputes(storedDisp, newDisp, actor, mergedOcc);
       // vaga assumida (takeover efetivado) -> tem carro de novo, limpa os avisos dela
       for (const k of takeoverSlots) if (mergedOcc[k] && normDigits(mergedOcc[k].phone) === actor) delete mergedDisp[k];
+      const mergedOAlert = mergeOccAlerts(storedOAlert, newOAlert, actor, mergedOcc);
       const merged = JSON.stringify({
         date: today,
         occupancy: mergedOcc,
         calls: mergedCalls,
         waitlist: mergedWait,
         disputes: mergedDisp,
+        occupiedAlerts: mergedOAlert,
       });
       await client.query(
         `insert into kv (key, value, updated_at) values ('state', $1, now())
@@ -394,8 +438,9 @@ app.put('/api/kv/:key', writeLimiter, async (req, res) => {
       const callsD = mapDelta(storedCalls, mergedCalls);
       const waitD = mapDelta(storedWait, mergedWait);
       const dispD = mapDelta(storedDisp, mergedDisp);
-      if (Object.keys(occD).length || Object.keys(callsD).length || Object.keys(waitD).length || Object.keys(dispD).length) {
-        broadcast({ t: 'state', date: today, occ: occD, calls: callsD, wait: waitD, disp: dispD });
+      const oalertD = mapDelta(storedOAlert, mergedOAlert);
+      if (Object.keys(occD).length || Object.keys(callsD).length || Object.keys(waitD).length || Object.keys(dispD).length || Object.keys(oalertD).length) {
+        broadcast({ t: 'state', date: today, occ: occD, calls: callsD, wait: waitD, disp: dispD, oalert: oalertD });
       }
       return res.json({ value: merged });
     } catch (e) {

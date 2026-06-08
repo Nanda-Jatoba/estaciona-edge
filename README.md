@@ -44,6 +44,16 @@ você mesmo marcou como vazia na mesma requisição (autorização), e **desde q
 estacionado** em outro lugar; ao assumir, os avisos daquela vaga são limpos. Qualquer
 outra troca de ocupante continua sendo ignorada.
 
+### Vaga livre no sistema, mas pode ter carro sem cadastro
+Em uma vaga **livre**, a linha mostra só a ação principal (**Estacionar**) e um menu **⋮**
+de opções. Pelo menu dá para **avisar que pode estar ocupada** (alguém estacionou sem
+marcar no sistema). Aparece um chip 🔴 "pode estar ocupada" ao lado de "Livre", sem mudar
+o status da vaga. Os avisos ficam em `state.occupiedAlerts` e cada pessoa só registra/retira
+o próprio. No servidor o aviso é validado: cada um só mexe no seu (pelo header `X-Actor`) e
+o aviso **só vale enquanto a vaga estiver livre** — assim que alguém de fato registra a
+vaga, os avisos dela são descartados automaticamente. É o caso espelhado de "Sem carro?"
+(vaga ocupada sem carro).
+
 ### Sugestões
 A chave `suggestions` (persistente, sem reset diário) guarda as ideias enviadas, com
 votos 👍/👎 (cada um só mexe no próprio voto) e um flag **`implemented`** que qualquer

@@ -39,6 +39,10 @@ const INSTANCE = process.env.EVOLUTION_INSTANCE || 'psiclinic-alerts';
 const TRIGGER = (process.env.TRIGGER_PHRASE || '').trim();
 const DEPLOY_SCRIPT = process.env.DEPLOY_SCRIPT || path.join(__dirname, 'deploy.sh');
 const ALLOWED = (process.env.ALLOWED_NUMBERS || '').split(',').map((s) => s.replace(/\D/g, '')).filter(Boolean);
+// O WhatsApp pode identificar o remetente por um LID (@lid), que NÃO é endereçável
+// pela API. Quando isso acontece (e não dá pra extrair o telefone real do payload),
+// a confirmação vai para este número fixo. Sem ele, o deploy roda mas não há resposta.
+const NOTIFY_NUMBER = (process.env.NOTIFY_NUMBER || '').replace(/\D/g, '');
 
 if (!TRIGGER) { console.error('TRIGGER_PHRASE não definida — abortando.'); process.exit(1); }
 if (!APIKEY) { console.error('EVOLUTION_APIKEY não definida — abortando.'); process.exit(1); }
@@ -71,6 +75,19 @@ function extractText(data) {
   const m = data && data.message;
   if (!m) return '';
   return m.conversation || (m.extendedTextMessage && m.extendedTextMessage.text) || '';
+}
+
+// Para onde mandar a resposta. Prioridade:
+//  1) remoteJid já é um telefone (@s.whatsapp.net) -> usa ele;
+//  2) telefone real exposto no payload (senderPn/participantPn);
+//  3) NOTIFY_NUMBER (quando o remetente é só um @lid, não endereçável).
+function replyTarget(data) {
+  const key = data.key || {};
+  const jid = key.remoteJid || '';
+  if (jid.endsWith('@s.whatsapp.net')) return digits(jid);
+  const pn = key.senderPn || key.participantPn || data.senderPn || '';
+  if (pn) return digits(pn);
+  return NOTIFY_NUMBER;
 }
 
 const server = http.createServer((req, res) => {
@@ -106,23 +123,25 @@ const server = http.createServer((req, res) => {
     // Barreira: a mensagem precisa ser EXATAMENTE a palavra-gatilho (case-insensitive).
     if (text.toLowerCase() !== TRIGGER.toLowerCase()) return;
 
+    const target = replyTarget(data);                          // para onde vai a confirmação
     if (ALLOWED.length && !ALLOWED.includes(digits(sender))) {
       console.log('Disparo negado (remetente não autorizado):', digits(sender));
-      await sendText(sender, '⛔ Você não está autorizado a disparar deploy.');
+      await sendText(target, '⛔ Você não está autorizado a disparar deploy.');
       return;
     }
 
-    if (deploying) { await sendText(sender, '⏳ Já há um deploy em andamento. Aguarde terminar.'); return; }
+    if (deploying) { await sendText(target, '⏳ Já há um deploy em andamento. Aguarde terminar.'); return; }
 
     deploying = true;
-    console.log('Deploy disparado por', digits(sender));
-    await sendText(sender, '🚀 Deploy do EstacionaEDGE iniciado...');
+    console.log('Deploy disparado por', sender, '-> resposta para', target || '(sem destino)');
+    if (!target) console.error('Sem destino de resposta: remetente é LID e NOTIFY_NUMBER não está definido.');
+    await sendText(target, '🚀 Deploy do EstacionaEDGE iniciado...');
     const r = await runDeploy();
     deploying = false;
 
     const tail = `${r.stdout}\n${r.stderr}`.trim().split('\n').slice(-10).join('\n');
-    if (r.ok) await sendText(sender, `✅ Deploy OK — https://estacionaedge.baluarte.dev.br\n\n${tail}`);
-    else await sendText(sender, `❌ Deploy FALHOU (code ${r.code})\n\n${tail}`);
+    if (r.ok) await sendText(target, `✅ Deploy OK — https://estacionaedge.baluarte.dev.br\n\n${tail}`);
+    else await sendText(target, `❌ Deploy FALHOU (code ${r.code})\n\n${tail}`);
     console.log('Deploy', r.ok ? 'OK' : 'FALHOU', 'code', r.code);
   });
 });

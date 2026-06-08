@@ -35,7 +35,7 @@ const BOT_HOST = process.env.BOT_HOST || '127.0.0.1';
 const WEBHOOK_PATH = process.env.WEBHOOK_PATH || '/webhook';
 const EVOLUTION_URL = (process.env.EVOLUTION_URL || 'http://127.0.0.1:8089').replace(/\/$/, '');
 const APIKEY = process.env.EVOLUTION_APIKEY || '';
-const INSTANCE = process.env.EVOLUTION_INSTANCE || 'psiclinic-alerts';
+const INSTANCE = process.env.EVOLUTION_INSTANCE || 'alertas-baluarte';
 const TRIGGER = (process.env.TRIGGER_PHRASE || '').trim();
 const DEPLOY_SCRIPT = process.env.DEPLOY_SCRIPT || path.join(__dirname, 'deploy.sh');
 const ALLOWED = (process.env.ALLOWED_NUMBERS || '').split(',').map((s) => s.replace(/\D/g, '')).filter(Boolean);

@@ -22,7 +22,7 @@ echo "== git pull =="
 cd "$SRC"
 git fetch --quiet origin main
 git reset --hard origin/main
-echo "commit: $(git rev-parse --short HEAD) — $(git log -1 --pretty=%s)"
+echo "commit: $(git rev-parse --short HEAD) | $(git log -1 --pretty=%s)"
 
 echo "== build index.html =="
 cd "$APP"

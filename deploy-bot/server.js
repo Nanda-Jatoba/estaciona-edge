@@ -2,13 +2,14 @@
 /*
  * EstacionaEDGE deploy-bot.
  *
- * Recebe o webhook MESSAGES_UPSERT da Evolution API (instância psiclinic-alerts),
- * e quando chega uma mensagem cujo texto bate EXATAMENTE com a palavra-gatilho
+ * Recebe o webhook message.received do OpenWA e, quando chega uma mensagem
+ * cujo texto bate EXATAMENTE com a palavra-gatilho
  * secreta (TRIGGER_PHRASE), roda o deploy.sh (git pull + build + pm2 reload no VPS)
  * e responde no WhatsApp com o status.
  *
  * Zero dependências externas: usa http nativo + fetch global (Node >= 18) +
- * child_process. Roda só em 127.0.0.1 — a Evolution chama localmente, nada exposto.
+ * child_process. Escuta só no gateway da bridge do Docker, que o container do
+ * OpenWA alcança sem que a porta fique exposta na internet.
  *
  * Segurança: a única barreira pedida é a palavra-gatilho secreta. Opcionalmente,
  * ALLOWED_NUMBERS restringe quais remetentes podem disparar.
@@ -28,14 +29,16 @@ if (fs.existsSync(envPath)) {
 }
 
 const BOT_PORT = parseInt(process.env.BOT_PORT || '3200', 10);
-// Interface de bind. A Evolution roda em container Docker, então o webhook dela
-// não enxerga o 127.0.0.1 do host — use o IP do gateway da bridge (ex.: 172.20.0.1)
-// para que o container alcance o bot sem expor a porta na internet.
+// Interface de bind. O gateway roda em container Docker e não enxerga o
+// 127.0.0.1 do host, então o bot escuta no IP do gateway da bridge da rede do
+// container. Com o OpenWA esse endereço ainda precisa constar em
+// SSRF_ALLOWED_HOSTS no .env dele, senão a entrega é recusada pelo guard de
+// SSRF antes mesmo de sair.
 const BOT_HOST = process.env.BOT_HOST || '127.0.0.1';
 const WEBHOOK_PATH = process.env.WEBHOOK_PATH || '/webhook';
-const EVOLUTION_URL = (process.env.EVOLUTION_URL || 'http://127.0.0.1:8089').replace(/\/$/, '');
-const APIKEY = process.env.EVOLUTION_APIKEY || '';
-const INSTANCE = process.env.EVOLUTION_INSTANCE || 'alertas-baluarte';
+const WHATSAPP_URL = (process.env.WHATSAPP_API_URL || 'http://127.0.0.1:2786').replace(/\/$/, '');
+const APIKEY = process.env.WHATSAPP_API_KEY || '';
+const SESSION = process.env.WHATSAPP_SESSION_ID || '';
 const TRIGGER = (process.env.TRIGGER_PHRASE || '').trim();
 const DEPLOY_SCRIPT = process.env.DEPLOY_SCRIPT || path.join(__dirname, 'deploy.sh');
 const ALLOWED = (process.env.ALLOWED_NUMBERS || '').split(',').map((s) => s.replace(/\D/g, '')).filter(Boolean);
@@ -44,8 +47,9 @@ const ALLOWED = (process.env.ALLOWED_NUMBERS || '').split(',').map((s) => s.repl
 // quem disparou), a confirmação vai para esta lista fixa de "admins do deploy".
 const NOTIFY_NUMBERS = (process.env.NOTIFY_NUMBER || '').split(',').map((s) => s.replace(/\D/g, '')).filter(Boolean);
 
-if (!TRIGGER) { console.error('TRIGGER_PHRASE não definida — abortando.'); process.exit(1); }
-if (!APIKEY) { console.error('EVOLUTION_APIKEY não definida — abortando.'); process.exit(1); }
+if (!TRIGGER) { console.error('TRIGGER_PHRASE não definida, abortando.'); process.exit(1); }
+if (!APIKEY) { console.error('WHATSAPP_API_KEY não definida, abortando.'); process.exit(1); }
+if (!SESSION) { console.error('WHATSAPP_SESSION_ID não definida, abortando.'); process.exit(1); }
 
 let deploying = false;
 
@@ -55,10 +59,10 @@ async function sendText(toJid, text) {
   const number = digits(toJid);
   if (!number) return;
   try {
-    const r = await fetch(`${EVOLUTION_URL}/message/sendText/${INSTANCE}`, {
+    const r = await fetch(`${WHATSAPP_URL}/api/sessions/${SESSION}/messages/send-text`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', apikey: APIKEY },
-      body: JSON.stringify({ number, text }),
+      headers: { 'Content-Type': 'application/json', 'x-api-key': APIKEY },
+      body: JSON.stringify({ chatId: `${number}@c.us`, text }),
     });
     if (!r.ok) console.error('sendText HTTP', r.status, await r.text().catch(() => ''));
   } catch (e) { console.error('sendText falhou:', e.message); }
@@ -71,23 +75,25 @@ function runDeploy() {
   });
 }
 
+// O OpenWA entrega a mensagem já normalizada em `data.body`, com `type` dizendo
+// a natureza. O gateway anterior entregava a estrutura crua do Baileys e obrigava
+// a escavar conversation/extendedTextMessage.
 function extractText(data) {
-  const m = data && data.message;
-  if (!m) return '';
-  return m.conversation || (m.extendedTextMessage && m.extendedTextMessage.text) || '';
+  if (!data) return '';
+  // `type` costuma vir como 'text'/'chat' dependendo da engine; quando o campo
+  // nao vem, o corpo ainda serve. So descartamos o que claramente nao e texto.
+  const tipo = String(data.type || '').toLowerCase();
+  if (tipo && !['text', 'chat', 'conversation', 'extendedtext'].includes(tipo)) return '';
+  return String(data.body || '');
 }
 
 // Para quem mandar a confirmação: sempre a lista NOTIFY_NUMBERS e, se o remetente
 // vier com telefone real (não-LID), também responde direto para ele. Deduplicado.
 function replyTargets(data) {
   const set = new Set(NOTIFY_NUMBERS);
-  const key = data.key || {};
-  const jid = key.remoteJid || '';
-  if (jid.endsWith('@s.whatsapp.net')) set.add(digits(jid));
-  else {
-    const pn = key.senderPn || key.participantPn || data.senderPn || '';
-    if (pn) set.add(digits(pn));
-  }
+  const from = String((data && data.from) || '');
+  if (from.endsWith('@c.us')) set.add(digits(from));
+  else if (data && data.senderPhone) set.add(digits(data.senderPhone));
   return [...set].filter(Boolean);
 }
 
@@ -110,18 +116,23 @@ const server = http.createServer((req, res) => {
   let body = '';
   req.on('data', (c) => { body += c; if (body.length > 1_000_000) req.destroy(); });
   req.on('end', async () => {
-    // responde rápido pra Evolution não re-tentar; processa em seguida.
+    // responde rápido para o gateway não re-tentar; processa em seguida.
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end('{"ok":true}');
 
     let payload;
     try { payload = JSON.parse(body); } catch { return; }
-    if (!/messages[._]upsert/i.test(payload.event || '')) return;
+    if ((payload.event || '') !== 'message.received') return;
 
     const data = payload.data || {};
-    if (data.key && data.key.fromMe) return;                 // ignora o que o próprio número enviou
-    const sender = (data.key && data.key.remoteJid) || '';
-    if (!sender || sender.endsWith('@g.us')) return;          // ignora grupos
+    if (data.fromMe) return;                                  // ignora o que o próprio número enviou
+    const sender = String(data.from || '');
+    // Guard de conversa direta escrito como negacao: `kind` nem sempre vem no
+    // payload do webhook (a API expoe, o evento nem sempre), e exigir
+    // kind === 'individual' fazia o bot descartar toda mensagem legitima.
+    if (!sender) return;
+    if (data.isGroup || sender.endsWith('@g.us') || sender.endsWith('@newsletter')) return;
+    if (data.kind && data.kind !== 'individual') return;
     const text = extractText(data).trim();
     if (!text) return;
 
@@ -145,12 +156,12 @@ const server = http.createServer((req, res) => {
     deploying = false;
 
     const tail = `${r.stdout}\n${r.stderr}`.trim().split('\n').slice(-10).join('\n');
-    if (r.ok) await notifyAll(targets, `✅ Deploy OK — https://estacionaedge.baluarte.dev.br\n\n${tail}`);
+    if (r.ok) await notifyAll(targets, `✅ Deploy OK: https://estacionaedge.baluarte.dev.br\n\n${tail}`);
     else await notifyAll(targets, `❌ Deploy FALHOU (code ${r.code})\n\n${tail}`);
     console.log('Deploy', r.ok ? 'OK' : 'FALHOU', 'code', r.code);
   });
 });
 
 server.listen(BOT_PORT, BOT_HOST, () => {
-  console.log(`deploy-bot ouvindo em http://${BOT_HOST}:${BOT_PORT}${WEBHOOK_PATH} (instância ${INSTANCE})`);
+  console.log(`deploy-bot ouvindo em http://${BOT_HOST}:${BOT_PORT}${WEBHOOK_PATH} (sessão ${SESSION})`);
 });

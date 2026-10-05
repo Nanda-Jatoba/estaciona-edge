@@ -1164,13 +1164,7 @@ async function loadRanking(){
 const UPDATE_VERSION='2026-10-05.1';
 const UPDATES=[
   'Novo ranking (ícone de troféu): quem mais usa as vagas e a vaga favorita de cada um.',
-  'Vaga livre com aviso de "pode estar ocupada" agora conta como ocupada nos totais.',
-  'Vaga livre mas tem um carro sem cadastro? Agora dá pra avisar pelo menu ⋮ da vaga.',
-  'Atualização em tempo real: a tela muda sozinha quando alguém age (sem ficar recarregando).',
-  'Dá pra marcar uma sugestão como "implementada".',
-  'Vaga aparece ocupada mas não tem carro? Agora dá pra avisar com um toque.',
-  'Página de sugestões — com 👍, 👎 e selo de implementada.',
-  'Lista de espera com aviso no WhatsApp.'
+  'Vaga livre com aviso de "pode estar ocupada" agora conta como ocupada nos totais.'
 ];
 async function maybeShowUpdates(){
   let seen=null; try{seen=await getVal('seenUpdates',false);}catch(e){}

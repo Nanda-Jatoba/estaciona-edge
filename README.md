@@ -54,6 +54,20 @@ o aviso **só vale enquanto a vaga estiver livre** — assim que alguém de fato
 vaga, os avisos dela são descartados automaticamente. É o caso espelhado de "Sem carro?"
 (vaga ocupada sem carro).
 
+### Ranking de uso
+Ícone de troféu no topo → página **Ranking** com quem mais usa as vagas, a
+**vaga favorita** de cada um e filtro **Este mês / Geral**. Como o `state` zera todo dia,
+o servidor grava o histórico na tabela `parking_sessions` — uma linha por sessão
+(estacionou → liberou), aberta/fechada na mesma transação em que a ocupação muda
+(inclusive takeover). Sessão que fica aberta quando o dia vira conta até a meia-noite.
+
+- **Um dia só conta com pelo menos 2h na vaga** (`RANK_MIN_MINUTES`, somando as sessões do
+  dia) — quem marca sem querer e libera logo não entra. É só uma verificação no
+  servidor: o tempo não aparece no app nem é exposto pela API. Sair e voltar no mesmo dia conta 1.
+- Favorita = vaga presente em mais dias contados (empate → mais tempo total).
+- Empates de dias dividem a posição. O endpoint não expõe telefones; `me` vem do `X-Actor`.
+- O histórico começa a contar a partir do deploy desta versão.
+
 ### Sugestões
 A chave `suggestions` (persistente, sem reset diário) guarda as ideias enviadas, com
 votos 👍/👎 (cada um só mexe no próprio voto) e um flag **`implemented`** que qualquer
@@ -61,6 +75,7 @@ pessoa logada pode marcar/desmarcar — a sugestão ganha um selo "Implementada"
 
 - `app/server.js` — Express: serve o frontend estático + KV store:
   - `GET /api/events` → stream SSE com os deltas (ids alterados)
+  - `GET /api/ranking?period=month|all` → `{period, since, items:[{pos,name,sala,days,fav,favDays,me}]}`
   - `GET /api/kv/:key` → `{value}` | 404 (`state`, `suggestions`, `user:<telefone>`)
   - `PUT /api/kv/:key` (body `{value:string}`) → `{value}` (aplicação autoritativa)
   - `DELETE /api/kv/:key` → `{deleted:true}`
@@ -74,7 +89,7 @@ pessoa logada pode marcar/desmarcar — a sugestão ganha um selo "Implementada"
 | App         | PM2 `estacionaedge`, Node/Express, `127.0.0.1:3100`           |
 | Diretório   | `/opt/estacionaedge` (`.env` com `DATABASE_URL`/`PORT`)        |
 | Banco       | `estacionaedge` no container `baluarte-postgres` (5433)        |
-| DB role     | `estacionaedge_app` (tabela `kv`)                             |
+| DB role     | `estacionaedge_app` (tabelas `kv` e `parking_sessions`)                             |
 | nginx       | `/etc/nginx/sites-available/estacionaedge.baluarte.dev.br`     |
 | Monitoramento | Grafana — dashboard "App — EstacionaEDGE" (`grafana.baluarte.dev.br/d/app-estacionaedge`) |
 

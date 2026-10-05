@@ -47,6 +47,23 @@ async function ensureSchema() {
       updated_at timestamptz not null default now()
     )
   `);
+  // Histórico de uso das vagas (o state zera todo dia) — base do ranking.
+  // Uma linha por SESSÃO (estacionou -> liberou). ended_at nulo = ainda na vaga
+  // (ou o dia virou sem liberar: aí o fim é considerado a meia-noite daquele dia).
+  await pool.query(`
+    create table if not exists parking_sessions (
+      id         bigserial   primary key,
+      day        date        not null,
+      phone      text        not null,
+      slot       text        not null,
+      name       text        not null,
+      sala       text        not null default '',
+      type       text        not null default '',
+      started_at timestamptz not null default now(),
+      ended_at   timestamptz
+    )
+  `);
+  await pool.query('create index if not exists parking_sessions_day_phone on parking_sessions (day, phone)');
 }
 
 /* ===== Layout das vagas (espelha o VAGAS de frontend.html) ===== */
@@ -350,6 +367,56 @@ app.get('/api/events', (req, res) => {
   req.on('close', () => { clearInterval(ping); sseClients.delete(res); });
 });
 
+/* ===== Ranking: quem mais usa as vagas e a vaga favorita de cada um =====
+ *   GET /api/ranking?period=month|all
+ *   -> { period, since, items: [{ pos, name, sala, days, fav, favDays, me }] }
+ * Um dia só CONTA se a pessoa somou pelo menos RANK_MIN_MINUTES na vaga naquele dia
+ * (marcar sem querer e liberar logo não entra) — verificação só no servidor, o tempo não é exposto. Sessão sem fim conta até agora ou até a
+ * meia-noite do dia (o state zera e ninguém "libera"). Favorita = vaga presente em mais
+ * dias contados (empate -> mais tempo total). Telefones não saem do servidor. */
+const RANK_MIN_MINUTES = 120;
+const SESSION_MINS = `extract(epoch from (
+    least(coalesce(ended_at, now()), ((day + 1)::timestamp at time zone 'America/Sao_Paulo')) - started_at
+  )) / 60`;
+app.get('/api/ranking', async (req, res) => {
+  const period = req.query.period === 'all' ? 'all' : 'month';
+  const today = spDateStr();
+  const since = period === 'month' ? today.slice(0, 8) + '01' : null;
+  const actor = normDigits(req.get('X-Actor'));
+  try {
+    const r = await pool.query(
+      `with s as (
+         select phone, day, split_part(slot, '-', 1) as vaga, name, sala, started_at,
+                greatest(${SESSION_MINS}, 0) as mins
+         from parking_sessions where ($1::date is null or day >= $1::date)
+       ),
+       qd as (select phone, day from s group by phone, day having sum(mins) >= $2),
+       people as (select phone, count(*)::int as days from qd group by phone),
+       info as (select distinct on (phone) phone, name, sala, started_at as last_ts from s order by phone, started_at desc),
+       fav as (
+         select distinct on (phone) phone, vaga, count(distinct day)::int as vdays
+         from s join qd using (phone, day)
+         group by phone, vaga
+         order by phone, count(distinct day) desc, sum(mins) desc
+       )
+       select p.phone, i.name, i.sala, p.days, f.vaga, f.vdays
+       from people p join info i using (phone) join fav f using (phone)
+       order by p.days desc, i.last_ts desc
+       limit 50`,
+      [since, RANK_MIN_MINUTES]
+    );
+    let pos = 0, prev = null;
+    const items = r.rows.map((row, i) => {
+      if (row.days !== prev) { pos = i + 1; prev = row.days; } // empate divide a posição
+      return { pos, name: row.name, sala: row.sala, days: row.days, fav: row.vaga, favDays: row.vdays, me: !!actor && row.phone === actor };
+    });
+    res.set('Cache-Control', 'no-store');
+    res.json({ period, since, items });
+  } catch (e) {
+    res.status(500).json({ error: String(e.message || e) });
+  }
+});
+
 app.get('/api/kv/:key', async (req, res) => {
   const k = req.params.key;
   if (!allowedKey(k)) return res.status(400).json({ error: 'bad key' });
@@ -432,6 +499,23 @@ app.put('/api/kv/:key', writeLimiter, async (req, res) => {
          on conflict (key) do update set value = excluded.value, updated_at = now()`,
         [merged]
       );
+      // histórico p/ o ranking: fecha a sessão de quem saiu da vaga e abre a de quem entrou
+      for (const k of Object.keys(storedOcc)) {
+        const before = storedOcc[k], o = mergedOcc[k];
+        if (o && normDigits(o.phone) === normDigits(before.phone)) continue;
+        await client.query(
+          'update parking_sessions set ended_at = now() where day = $1 and phone = $2 and slot = $3 and ended_at is null',
+          [today, normDigits(before.phone), k]
+        );
+      }
+      for (const k of Object.keys(mergedOcc)) {
+        const o = mergedOcc[k], before = storedOcc[k];
+        if (before && normDigits(before.phone) === normDigits(o.phone)) continue;
+        await client.query(
+          'insert into parking_sessions (day, phone, slot, name, sala, type) values ($1, $2, $3, $4, $5, $6)',
+          [today, normDigits(o.phone), k, String(o.name).slice(0, 60), String(o.sala == null ? '' : o.sala).slice(0, 12), SLOT_TYPE[k] || '']
+        );
+      }
       await client.query('commit');
       // Empurra para os outros clientes só o que mudou (ids), não o estado inteiro.
       const occD = mapDelta(storedOcc, mergedOcc);

@@ -238,7 +238,8 @@ function mergeDisputes(storedDisputes, newDisputes, actor, occ) {
     const incoming = (newDisputes[slot] && typeof newDisputes[slot] === 'object') ? newDisputes[slot] : undefined;
     const kept = {};
     for (const ph of Object.keys(cur)) {
-      if (incoming && incoming[ph] === undefined && actor && normDigits(ph) === actor) continue; // tirou o próprio aviso
+      // tirou o próprio aviso — inclusive quando era o único e o cliente apagou a vaga inteira do mapa
+      if (actor && normDigits(ph) === actor && (!incoming || incoming[ph] === undefined)) continue;
       kept[ph] = cur[ph];
     }
     if (Object.keys(kept).length) result[slot] = kept;
@@ -284,7 +285,8 @@ function mergeOccAlerts(storedAlerts, newAlerts, actor, occ) {
     const incoming = (newAlerts[slot] && typeof newAlerts[slot] === 'object') ? newAlerts[slot] : undefined;
     const kept = {};
     for (const ph of Object.keys(cur)) {
-      if (incoming && incoming[ph] === undefined && actor && normDigits(ph) === actor) continue; // tirou o próprio aviso
+      // tirou o próprio aviso — inclusive quando era o único e o cliente apagou a vaga inteira do mapa
+      if (actor && normDigits(ph) === actor && (!incoming || incoming[ph] === undefined)) continue;
       kept[ph] = cur[ph];
     }
     if (Object.keys(kept).length) result[slot] = kept;

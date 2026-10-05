@@ -515,10 +515,12 @@ function startLive(){
 }
 function stopLive(){ if(evSource){try{evSource.close();}catch(e){} evSource=null; liveOpened=false;} }
 function countOcc(){return Object.keys(occupancy).length;}
+// Conta como ocupada: vaga registrada OU vaga livre com aviso de "pode estar ocupada" (carro sem cadastro).
+function slotBusy(key){ if(occupancy[key])return true; const a=state.occupiedAlerts&&state.occupiedAlerts[key]; return !!(a&&Object.keys(a).length); }
 function slotStats(){
   let carT=0,carO=0,motoT=0,motoO=0;
   for(const v of VAGAS) slotsOf(v).forEach((s,i)=>{
-    const od=!!occupancy[v.id+'-'+i];
+    const od=slotBusy(v.id+'-'+i);
     if(s.type==='moto'){motoT++;if(od)motoO++;}else{carT++;if(od)carO++;}
   });
   return {carT,carO,carF:carT-carO,motoT,motoO,motoF:motoT-motoO};
@@ -634,12 +636,12 @@ async function copyNumber(t){
 }
 
 /* ===== LISTA DE VAGAS ===== */
-function floorIsFull(v){ return slotsOf(v).every((s,i)=>occupancy[v.id+'-'+i]); }
+function floorIsFull(v){ return slotsOf(v).every((s,i)=>slotBusy(v.id+'-'+i)); }
 function floorHtml(floor){
   let list=VAGAS.filter(v=>v.local===floor);
   let tot=0,occ=0;
   // conta apenas vagas de CARRO (motos ficam só no resumo do topo)
-  list.forEach(v=>slotsOf(v).forEach((s,i)=>{ if(s.type==='moto')return; tot++; if(occupancy[v.id+'-'+i])occ++; }));
+  list.forEach(v=>slotsOf(v).forEach((s,i)=>{ if(s.type==='moto')return; tot++; if(slotBusy(v.id+'-'+i))occ++; }));
   const full=tot>0&&occ>=tot;
   // mantém a posição fixa do box (mesmo cheio)
   const open=!collapsed[floor];
@@ -693,7 +695,7 @@ function renderVaga(v){
   const slots=slotsOf(v);
   const me=normPhone(user.phone);
   const occInfo=slots.map((s,i)=>occupancy[v.id+'-'+i]||null);
-  const occCount=occInfo.filter(Boolean).length;
+  const occCount=slots.filter((s,i)=>slotBusy(v.id+'-'+i)).length;
   const mineIdx=occInfo.findIndex(o=>o&&normPhone(o.phone)===me);
   const iAmHere=mineIdx>=0;
   const iAmParked=!!mySpotKey(); // já ocupo alguma vaga (aqui ou em outro box)?
@@ -912,7 +914,7 @@ async function reportOccupied(key){
   state.occupiedAlerts[key][normPhone(user.phone)]={name:user.name,phone:user.phone,ts:Date.now()};
   await saveState();
   toast('Aviso enviado: a vaga pode estar ocupada.');
-  renderOneFloor(localOf(vid));
+  renderOneFloor(localOf(vid));refreshStats();
 }
 async function unreportOccupied(key){
   await loadState();
@@ -920,7 +922,7 @@ async function unreportOccupied(key){
   if(state.occupiedAlerts[key]){delete state.occupiedAlerts[key][normPhone(user.phone)];if(!Object.keys(state.occupiedAlerts[key]).length)delete state.occupiedAlerts[key];}
   await saveState();
   toast('Aviso retirado.');
-  renderOneFloor(localOf(vid));
+  renderOneFloor(localOf(vid));refreshStats();
 }
 async function doLogout(){stopLive();await setVal('currentUser','',false);try{await store.delete('currentUser',false);}catch(e){}user=null;occupancy={};state={date:todayStr(),occupancy:{},calls:{},waitlist:{},disputes:{},occupiedAlerts:{}};renderLogin();}
 

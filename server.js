@@ -50,21 +50,28 @@ async function ensureSchema() {
   // Histórico de uso das vagas (o state zera todo dia) — base do ranking.
   // Uma linha por SESSÃO (estacionou -> liberou). ended_at nulo = ainda na vaga
   // (ou o dia virou sem liberar: aí o fim é considerado a meia-noite daquele dia).
-  await pool.query(`
-    create table if not exists parking_sessions (
-      id         bigserial   primary key,
-      day        date        not null,
-      phone      text        not null,
-      slot       text        not null,
-      name       text        not null,
-      sala       text        not null default '',
-      type       text        not null default '',
-      started_at timestamptz not null default now(),
-      ended_at   timestamptz
-    )
-  `);
-  await pool.query('create index if not exists parking_sessions_day_phone on parking_sessions (day, phone)');
+  // NÃO é fatal: sem essa tabela (ex.: role sem CREATE) o app sobe igual, só sem ranking.
+  try {
+    await pool.query(`
+      create table if not exists parking_sessions (
+        id         bigserial   primary key,
+        day        date        not null,
+        phone      text        not null,
+        slot       text        not null,
+        name       text        not null,
+        sala       text        not null default '',
+        type       text        not null default '',
+        started_at timestamptz not null default now(),
+        ended_at   timestamptz
+      )
+    `);
+    await pool.query('create index if not exists parking_sessions_day_phone on parking_sessions (day, phone)');
+    historyReady = true;
+  } catch (e) {
+    console.error('[ranking] parking_sessions indisponível — app segue sem histórico:', e.message);
+  }
 }
+let historyReady = false;
 
 /* ===== Layout das vagas (espelha o VAGAS de frontend.html) ===== */
 const SLOT_TYPE = {};
@@ -379,6 +386,7 @@ const SESSION_MINS = `extract(epoch from (
     least(coalesce(ended_at, now()), ((day + 1)::timestamp at time zone 'America/Sao_Paulo')) - started_at
   )) / 60`;
 app.get('/api/ranking', async (req, res) => {
+  if (!historyReady) return res.status(503).json({ error: 'ranking indisponível' });
   const period = req.query.period === 'all' ? 'all' : 'month';
   const today = spDateStr();
   const since = period === 'month' ? today.slice(0, 8) + '01' : null;
@@ -456,7 +464,9 @@ app.put('/api/kv/:key', writeLimiter, async (req, res) => {
     const actor = normDigits(req.get('X-Actor'));
     const today = spDateStr();
 
-    const client = await pool.connect();
+    let client;
+    try { client = await pool.connect(); } // falha de conexão não pode derrubar o processo
+    catch (e) { return res.status(503).json({ error: 'banco indisponível' }); }
     try {
       await client.query('begin');
       await client.query('select pg_advisory_xact_lock(729145)'); // serializa escritas do state
@@ -499,22 +509,32 @@ app.put('/api/kv/:key', writeLimiter, async (req, res) => {
          on conflict (key) do update set value = excluded.value, updated_at = now()`,
         [merged]
       );
-      // histórico p/ o ranking: fecha a sessão de quem saiu da vaga e abre a de quem entrou
-      for (const k of Object.keys(storedOcc)) {
-        const before = storedOcc[k], o = mergedOcc[k];
-        if (o && normDigits(o.phone) === normDigits(before.phone)) continue;
-        await client.query(
-          'update parking_sessions set ended_at = now() where day = $1 and phone = $2 and slot = $3 and ended_at is null',
-          [today, normDigits(before.phone), k]
-        );
-      }
-      for (const k of Object.keys(mergedOcc)) {
-        const o = mergedOcc[k], before = storedOcc[k];
-        if (before && normDigits(before.phone) === normDigits(o.phone)) continue;
-        await client.query(
-          'insert into parking_sessions (day, phone, slot, name, sala, type) values ($1, $2, $3, $4, $5, $6)',
-          [today, normDigits(o.phone), k, String(o.name).slice(0, 60), String(o.sala == null ? '' : o.sala).slice(0, 12), SLOT_TYPE[k] || '']
-        );
+      // histórico p/ o ranking: fecha a sessão de quem saiu da vaga e abre a de quem entrou.
+      // Fica num SAVEPOINT: se der erro aqui, desfaz só o histórico — a vaga é gravada igual.
+      if (historyReady) {
+        await client.query('savepoint hist');
+        try {
+          for (const k of Object.keys(storedOcc)) {
+            const before = storedOcc[k], o = mergedOcc[k];
+            if (o && normDigits(o.phone) === normDigits(before.phone)) continue;
+            await client.query(
+              'update parking_sessions set ended_at = now() where day = $1 and phone = $2 and slot = $3 and ended_at is null',
+              [today, normDigits(before.phone), k]
+            );
+          }
+          for (const k of Object.keys(mergedOcc)) {
+            const o = mergedOcc[k], before = storedOcc[k];
+            if (before && normDigits(before.phone) === normDigits(o.phone)) continue;
+            await client.query(
+              'insert into parking_sessions (day, phone, slot, name, sala, type) values ($1, $2, $3, $4, $5, $6)',
+              [today, normDigits(o.phone), k, String(o.name).slice(0, 60), String(o.sala == null ? '' : o.sala).slice(0, 12), SLOT_TYPE[k] || '']
+            );
+          }
+          await client.query('release savepoint hist');
+        } catch (e) {
+          await client.query('rollback to savepoint hist');
+          console.error('[ranking] falha ao gravar histórico (vaga gravada mesmo assim):', e.message);
+        }
       }
       await client.query('commit');
       // Empurra para os outros clientes só o que mudou (ids), não o estado inteiro.
@@ -563,7 +583,9 @@ app.put('/api/kv/:key', writeLimiter, async (req, res) => {
     if (!Array.isArray(arr)) return res.status(400).json({ error: 'suggestions inválido' });
     const incoming = arr.filter(validSuggestion);
     const actor = normDigits(req.get('X-Actor'));
-    const client = await pool.connect();
+    let client;
+    try { client = await pool.connect(); } // falha de conexão não pode derrubar o processo
+    catch (e) { return res.status(503).json({ error: 'banco indisponível' }); }
     try {
       await client.query('begin');
       await client.query('select pg_advisory_xact_lock(729146)'); // serializa escritas das sugestões

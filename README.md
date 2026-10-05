@@ -67,13 +67,17 @@ o servidor grava o histórico na tabela `parking_sessions` — uma linha por ses
 - Favorita = vaga presente em mais dias contados (empate → mais tempo total).
 - Empates de dias dividem a posição. O endpoint não expõe telefones; `me` vem do `X-Actor`.
 - O histórico começa a contar a partir do deploy desta versão.
+- O ranking nunca bloqueia o estacionamento: se a tabela não puder ser criada, o app sobe
+  sem ranking (`/api/ranking` → 503); se gravar o histórico falhar, só o histórico é
+  desfeito (savepoint) e a vaga é gravada normalmente.
 
 ### Sugestões
 A chave `suggestions` (persistente, sem reset diário) guarda as ideias enviadas, com
 votos 👍/👎 (cada um só mexe no próprio voto) e um flag **`implemented`** que qualquer
 pessoa logada pode marcar/desmarcar — a sugestão ganha um selo "Implementada".
 
-- `app/server.js` — Express: serve o frontend estático + KV store:
+- `server.js` (raiz) — **backend canônico** (é ele que vai para produção). Express: serve o
+  frontend estático + KV store:
   - `GET /api/events` → stream SSE com os deltas (ids alterados)
   - `GET /api/ranking?period=month|all` → `{period, since, items:[{pos,name,sala,days,fav,favDays,me}]}`
   - `GET /api/kv/:key` → `{value}` | 404 (`state`, `suggestions`, `user:<telefone>`)
@@ -104,9 +108,15 @@ em `monitoring/` (dashboard + entry do process-exporter). Detalhes e deploy:
 
 ## Editar e publicar
 
-1. Edite `frontend.html`.
-2. `cd ../_ops && python deploy_estacionaedge.py` (rebuild + upload + `pm2 reload` + health check).
+1. Edite `frontend.html` (frontend) e/ou `server.js` da raiz (backend).
+2. Commit + push para `main`.
+3. Dispare o deploy pelo **deploy-bot** (mensagem secreta no WhatsApp — ver
+   `deploy-bot/README.md`). Ele roda `deploy-bot/deploy.sh` no VPS: `git reset --hard
+   origin/main`, gera `app/public/index.html`, copia o `server.js` da raiz + `app/` para
+   `/opt/estacionaedge`, `npm install`, `pm2 reload` e health check.
+   Só vai para produção o que já está no GitHub.
 
+Alternativa manual (legado): `cd ../_ops && python deploy_estacionaedge.py`.
 Auth no VPS via chave `~/.ssh/psiclinic_ops_ed25519`.
 
 > **nginx + SSE:** o endpoint `/api/events` é um stream de longa duração. A resposta já
@@ -121,5 +131,6 @@ cd app
 cp .env.example .env   # ajuste DATABASE_URL (ex.: túnel SSH p/ o Postgres prod)
 npm install
 node build-html.mjs
+cp ../server.js .      # mesmo layout do deploy (app/server.js é ignorado pelo git)
 npm start              # http://127.0.0.1:3100
 ```

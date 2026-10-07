@@ -276,20 +276,33 @@
   .rankSeg button{flex:1;padding:9px 10px;border-radius:9px;background:transparent;border:0;color:var(--muted);font-weight:700;font-size:.92rem;}
   .rankSeg button.on{background:var(--surface);color:var(--ink);box-shadow:var(--shadow-sm);}
   .rankNote{color:var(--muted);font-size:.84rem;margin:0 2px 12px;line-height:1.4;}
-  .rankItem{display:flex;align-items:center;gap:12px;background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:12px 14px;margin-bottom:9px;box-shadow:var(--shadow-sm);}
-  .rankItem.me{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent),var(--shadow-sm);}
-  .rankPos{flex:none;width:38px;height:38px;border-radius:11px;display:grid;place-items:center;font-family:'Barlow Condensed';font-weight:700;font-size:1.25rem;background:var(--surface3);color:var(--muted);}
-  .rankPos.p1{background:#f6c94c;color:#5a4300;} .rankPos.p2{background:#cfd6e0;color:#3a4352;} .rankPos.p3{background:#e3a574;color:#5a2e0c;}
-  .rankMid{flex:1;min-width:0;}
-  .rankName{display:flex;align-items:center;gap:6px;min-width:0;color:var(--ink);font-weight:700;}
-  .rankName .rn{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-  .rankName .rs{flex:none;font-weight:400;font-size:.84rem;color:var(--muted);} /* sala: igual à linha de baixo */
-  .rankName .tagme{flex:none;margin-left:0;}
-  .rankFav{color:var(--muted);font-size:.84rem;margin-top:2px;}
-  .rankFav b{color:var(--accent-d);}
-  .rankDays{flex:none;text-align:right;}
-  .rankDays .n{font-family:'Barlow Condensed';font-weight:700;font-size:1.5rem;line-height:1;color:var(--ink);}
-  .rankDays .l{font-size:.7rem;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);}
+  /* sua posição (fixa no topo) */
+  .rkMe{display:flex;align-items:center;gap:12px;background:var(--accent-soft);border:1px solid var(--accent);border-radius:14px;padding:11px 14px;margin-bottom:14px;}
+  .rkMe .pos{flex:none;min-width:44px;font-family:'Barlow Condensed';font-weight:700;font-size:1.6rem;line-height:1;color:var(--accent-d);}
+  .rkMe .tx{min-width:0;}
+  .rkMe .t1{color:var(--ink);font-weight:700;font-size:.95rem;}
+  .rkMe .t2{color:var(--muted);font-size:.84rem;margin-top:1px;}
+  .rkMe .t2 b{color:var(--accent-d);}
+  .rkMe .d{margin-left:auto;flex:none;text-align:right;}
+  .rkMe .d .n{font-family:'Barlow Condensed';font-weight:700;font-size:1.5rem;line-height:1;color:var(--ink);}
+  .rkMe .d .l{font-size:.7rem;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);}
+  /* tabela compacta */
+  .rkTable{background:var(--surface);border:1px solid var(--border);border-radius:14px;box-shadow:var(--shadow-sm);overflow:hidden;}
+  .rkHead,.rkRow{display:grid;grid-template-columns:34px 1fr 62px 40px;align-items:center;gap:8px;padding:0 12px;}
+  .rkHead{height:32px;font-size:.66rem;font-weight:800;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);border-bottom:1px solid var(--border);background:var(--surface2);}
+  .rkHead .r,.rkRow .r{text-align:right;}
+  .rkRow{min-height:52px;padding-top:6px;padding-bottom:6px;border-bottom:1px solid var(--border);}
+  .rkRow:last-child{border-bottom:0;}
+  .rkRow.me{background:var(--accent-soft);}
+  .rkRow .p{font-family:'Barlow Condensed';font-weight:700;font-size:1.05rem;color:var(--muted);}
+  .rkRow .p i{display:inline-grid;place-items:center;width:26px;height:26px;border-radius:8px;font-style:normal;}
+  .rkRow .p i.p1{background:#f6c94c;color:#5a4300;} .rkRow .p i.p2{background:#cfd6e0;color:#3a4352;} .rkRow .p i.p3{background:#e3a574;color:#5a2e0c;}
+  .rkRow .nm{min-width:0;line-height:1.2;}
+  .rkRow .nm .n1{color:var(--ink);font-weight:700;font-size:.92rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .rkRow .nm .n2{color:var(--muted);font-weight:400;font-size:.84rem;margin-top:1px;}
+  .rkRow .fv{font-size:.84rem;color:var(--accent-d);font-weight:700;white-space:nowrap;}
+  .rkRow .dd{font-family:'Barlow Condensed';font-weight:700;font-size:1.15rem;color:var(--ink);}
+  .rkMore{display:block;width:100%;margin-top:10px;padding:12px;border-radius:12px;background:transparent;border:1px solid var(--border2);color:var(--ink);font-weight:700;font-size:.92rem;}
   .sugItem.done{border-color:#2ea36a;box-shadow:0 0 0 1px #2ea36a,var(--shadow-sm);}
   .sugDone{display:flex;align-items:center;gap:7px;margin-top:9px;font-size:.86rem;font-weight:800;color:#2ea36a;}
   .sugDone svg{width:16px;height:16px;}
@@ -1115,7 +1128,8 @@ async function sendSuggestion(){
 }
 
 /* ===== RANKING: QUEM MAIS USA AS VAGAS + VAGA FAVORITA ===== */
-let rankPeriod='month';
+let rankPeriod='month', rankShowAll=false;
+const RANK_TOP=10; // quantos aparecem antes do "Ver todos"
 function openRanking(){
   app.innerHTML=`<header class="bar"><div class="barTop">
       <button class="iconbtn" id="rankBack" title="Voltar">${ICON.back}</button>
@@ -1132,7 +1146,7 @@ function openRanking(){
   bindThemeBtns();
   $('#rankBack').addEventListener('click',openDashboard);
   app.querySelectorAll('[data-rperiod]').forEach(b=>b.addEventListener('click',()=>{
-    rankPeriod=b.dataset.rperiod;
+    rankPeriod=b.dataset.rperiod;rankShowAll=false;
     app.querySelectorAll('[data-rperiod]').forEach(x=>x.classList.toggle('on',x===b));
     loadRanking();
   }));
@@ -1151,15 +1165,27 @@ async function loadRanking(){
   if(!data){el.innerHTML='<div class="wempty">Não consegui carregar o ranking agora.</div>';return;}
   const items=data.items||[];
   if(!items.length){el.innerHTML=`<div class="wempty">${period==='month'?'Ninguém estacionou ainda este mês.':'Ainda não há histórico de uso.'}</div>`;return;}
-  el.innerHTML=items.map(it=>{
-    const favTxt=`Favorita: <b>Vaga ${esc(it.fav)}</b> (${it.favDays} dia${it.favDays>1?'s':''})`;
-    return `<div class="rankItem ${it.me?'me':''}">
-      <div class="rankPos ${it.pos<=3?'p'+it.pos:''}">${it.pos}º</div>
-      <div class="rankMid"><div class="rankName"><span class="rn">${esc(it.name)}</span><span class="rs">· Sala ${esc(it.sala)}</span>${it.me?'<span class="tagme">VOCÊ</span>':''}</div>
-        <div class="rankFav">${favTxt}</div></div>
-      <div class="rankDays"><div class="n">${it.days}</div><div class="l">dia${it.days>1?'s':''}</div></div>
-    </div>`;
-  }).join('');
+  renderRankTable(items);
+}
+function renderRankTable(items){
+  const el=$('#rankList');if(!el)return;
+  const dias=n=>'dia'+(n>1?'s':'');
+  const me=items.find(it=>it.me);
+  const shown=rankShowAll?items:items.slice(0,RANK_TOP);
+  let h='';
+  // sua posição sempre à vista, mesmo fora do top
+  if(me) h+=`<div class="rkMe"><div class="pos">${me.pos}º</div>
+      <div class="tx"><div class="t1">Sua posição</div><div class="t2">Favorita: <b>Vaga ${esc(me.fav)}</b> (${me.favDays} ${dias(me.favDays)})</div></div>
+      <div class="d"><div class="n">${me.days}</div><div class="l">${dias(me.days)}</div></div></div>`;
+  h+=`<div class="rkTable"><div class="rkHead"><span>#</span><span>Nome</span><span>Favorita</span><span class="r">Dias</span></div>`+
+    shown.map(it=>`<div class="rkRow ${it.me?'me':''}">
+      <div class="p">${it.pos<=3?`<i class="p${it.pos}">${it.pos}º</i>`:it.pos+'º'}</div>
+      <div class="nm"><div class="n1">${esc(it.name)}</div><div class="n2">Sala ${esc(it.sala)}</div></div>
+      <div class="fv">Vaga ${esc(it.fav)}</div>
+      <div class="dd r">${it.days}</div></div>`).join('')+`</div>`;
+  if(items.length>RANK_TOP) h+=`<button class="rkMore" id="rkMore">${rankShowAll?'Mostrar só o top '+RANK_TOP:'Ver todos ('+items.length+')'}</button>`;
+  el.innerHTML=h;
+  const b=$('#rkMore');if(b)b.addEventListener('click',()=>{rankShowAll=!rankShowAll;renderRankTable(items);});
 }
 
 /* ===== MODAL DE NOVIDADES (mostra só 1 vez por pessoa) ===== */

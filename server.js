@@ -381,7 +381,7 @@ app.get('/api/events', (req, res) => {
  *   -> { period, since, items: [{ pos, name, sala, days, fav, favDays, me }] }
  * Um dia só CONTA se a pessoa somou pelo menos RANK_MIN_MINUTES na vaga naquele dia
  * (marcar sem querer e liberar logo não entra) — verificação só no servidor, o tempo não é exposto. Sessão sem fim conta até agora ou até a
- * meia-noite do dia (o state zera e ninguém "libera"). Favorita = vaga presente em mais
+ * meia-noite do dia (o state zera e ninguém "libera"). Só vagas de CARRO entram (motos não). Favorita = vaga presente em mais
  * dias contados (empate -> mais tempo total). Telefones não saem do servidor. */
 const RANK_MIN_MINUTES = 120;
 const SESSION_MINS = `extract(epoch from (
@@ -398,7 +398,9 @@ app.get('/api/ranking', async (req, res) => {
       `with s as (
          select phone, day, split_part(slot, '-', 1) as vaga, name, sala, started_at,
                 greatest(${SESSION_MINS}, 0) as mins
-         from parking_sessions where ($1::date is null or day >= $1::date)
+         from parking_sessions
+         where type = 'carro' -- ranking só de carros (vaga de moto não entra)
+           and ($1::date is null or day >= $1::date)
        ),
        qd as (select phone, day from s group by phone, day having sum(mins) >= $2),
        people as (select phone, count(*)::int as days from qd group by phone),

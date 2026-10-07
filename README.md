@@ -64,6 +64,7 @@ o servidor grava o histórico na tabela `parking_sessions` — uma linha por ses
 - **Um dia só conta com pelo menos 2h na vaga** (`RANK_MIN_MINUTES`, somando as sessões do
   dia) — quem marca sem querer e libera logo não entra. É só uma verificação no
   servidor: o tempo não aparece no app nem é exposto pela API. Sair e voltar no mesmo dia conta 1.
+- **Só carros:** sessões em vaga de moto (812) não entram no ranking.
 - Favorita = vaga presente em mais dias contados (empate → mais tempo total).
 - Empates de dias dividem a posição. O endpoint não expõe telefones; `me` vem do `X-Actor`.
 - O histórico começa a contar a partir do deploy desta versão.

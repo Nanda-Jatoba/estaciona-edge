@@ -281,7 +281,10 @@
   .rankPos{flex:none;width:38px;height:38px;border-radius:11px;display:grid;place-items:center;font-family:'Barlow Condensed';font-weight:700;font-size:1.25rem;background:var(--surface3);color:var(--muted);}
   .rankPos.p1{background:#f6c94c;color:#5a4300;} .rankPos.p2{background:#cfd6e0;color:#3a4352;} .rankPos.p3{background:#e3a574;color:#5a2e0c;}
   .rankMid{flex:1;min-width:0;}
-  .rankName{color:var(--ink);font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .rankName{display:flex;align-items:center;gap:6px;min-width:0;color:var(--ink);font-weight:700;}
+  .rankName .rn{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .rankName .rs{flex:none;font-weight:400;font-size:.84rem;color:var(--muted);} /* sala: igual à linha de baixo */
+  .rankName .tagme{flex:none;margin-left:0;}
   .rankFav{color:var(--muted);font-size:.84rem;margin-top:2px;}
   .rankFav b{color:var(--accent-d);}
   .rankDays{flex:none;text-align:right;}
@@ -1149,12 +1152,11 @@ async function loadRanking(){
   const items=data.items||[];
   if(!items.length){el.innerHTML=`<div class="wempty">${period==='month'?'Ninguém estacionou ainda este mês.':'Ainda não há histórico de uso.'}</div>`;return;}
   el.innerHTML=items.map(it=>{
-    const v=VAGAS.find(x=>x.id===it.fav);
-    const favTxt=`Favorita: <b>Vaga ${esc(it.fav)}</b>${v?' · '+esc(v.local):''} (${it.favDays} dia${it.favDays>1?'s':''})`;
+    const favTxt=`Favorita: <b>Vaga ${esc(it.fav)}</b> (${it.favDays} dia${it.favDays>1?'s':''})`;
     return `<div class="rankItem ${it.me?'me':''}">
       <div class="rankPos ${it.pos<=3?'p'+it.pos:''}">${it.pos}º</div>
-      <div class="rankMid"><div class="rankName">${esc(it.name)}${it.me?'<span class="tagme">VOCÊ</span>':''}</div>
-        <div class="rankFav">Sala ${esc(it.sala)} · ${favTxt}</div></div>
+      <div class="rankMid"><div class="rankName"><span class="rn">${esc(it.name)}</span><span class="rs">· Sala ${esc(it.sala)}</span>${it.me?'<span class="tagme">VOCÊ</span>':''}</div>
+        <div class="rankFav">${favTxt}</div></div>
       <div class="rankDays"><div class="n">${it.days}</div><div class="l">dia${it.days>1?'s':''}</div></div>
     </div>`;
   }).join('');
